@@ -1,0 +1,22 @@
+# --- Çekirdek derin öğrenme ---
+torch>=2.3             # torch.amp.GradScaler(device) için
+torchvision>=0.16
+segmentation-models-pytorch>=0.3.3
+albumentations>=1.3
+
+# --- Görüntü işleme ---
+opencv-python>=4.8
+pillow>=10.1          # ImageFont.load_default(size=...) için >=10.1 gerekli
+numpy>=1.24
+pandas>=2.0
+
+# --- OCR ---
+easyocr>=1.7
+
+# --- Web arayüzü ---
+streamlit>=1.30
+pymupdf>=1.24         # Yalnızca app.py içinde PDF -> görüntü dönüştürme için
+
+# --- Opsiyonel ---
+# tensorboard>=2.14   # Kuruluysa train.py metrikleri TensorBoard'a da yazar
+# lmdb>=1.4           # Yalnızca DocTamper LMDB dışa aktarımı için (src/dataset.py)

@@ -1,0 +1,10 @@
+data/
+checkpoints/
+runs/
+results/
+.cache/
+*.zip
+*.pth
+__pycache__/
+*.pyc
+.venv/
