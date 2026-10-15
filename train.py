@@ -207,6 +207,7 @@ def main() -> None:
 
     # --- 4) Eğitim döngüsü ---------------------------------------------------------
     for epoch in range(1, args.epochs + 1):
+        logger.info("Epoch %d/%d", epoch, args.epochs)
         start = time.time()
         metrics = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
         metrics.update(validate(model, val_ds, criterion, args.crop_size))

@@ -45,7 +45,13 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     "doctamper": ("1_base_doctamper",),
     "aiforgedoc": ("2_finetune_aiforgedoc", "finetune_aiforgedoc"),
     "sroie2019": ("3_sroie2019",),
-    "synthetic": ("4_synthetic_tr_en",),
+    "synthetic": ("4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
+}
+
+#: Klasörün kendisinin bir kaynak olarak kabul edilmesini sağlayan işaret dosyaları.
+#: Örn. ``--data-root data/synthetic_fast`` doğrudan ``metadata.csv`` içerir.
+SOURCE_MARKERS: dict[str, str] = {
+    "synthetic": "metadata.csv",
 }
 
 SPLIT_PRIORITY = {"": 0, "train": 1, "val": 2, "test": 3, "ood": 4}
@@ -113,9 +119,20 @@ def _list_images(folder: Path) -> list[Path]:
 
 
 def resolve_source_dir(data_root: Path, source: str) -> Optional[Path]:
-    """``SOURCE_DIRS`` içindeki aday klasörlerden ilk var olanı döndürür."""
+    """Kaynağın klasörünü bulur.
+
+    Arama sırası:
+      1. ``data_root``'un kendisi (kaynağın işaret dosyası, ör. sentetik için
+         ``metadata.csv``, doğrudan ``data_root`` altındaysa),
+      2. ``SOURCE_DIRS`` içindeki aday alt klasörler (ilk var olan).
+    """
+    marker = SOURCE_MARKERS.get(source)
+    if marker and (data_root / marker).is_file():
+        return data_root
     for name in SOURCE_DIRS[source]:
         candidate = data_root / name
+        if marker and not (candidate / marker).is_file():
+            continue
         if candidate.is_dir():
             return candidate
     return None
@@ -329,6 +346,13 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
             frame = _manifest_sroie(root)
         logger.info("%-11s %6d görüntü (%s)", source, len(frame), "eğitim" if for_training else "yalnız test/OOD")
         frames.append(frame)
+    found = {f["source"].iloc[0] for f in frames if not f.empty}
+    missing = [s for s in train_sources if s not in found]
+    if missing:
+        searched = "; ".join(
+            f"{s}: " + ", ".join(str(data_root / n) for n in ("",) + SOURCE_DIRS.get(s, ()))
+            for s in missing)
+        raise FileNotFoundError(f"Eğitim kaynağı için veri bulunamadı ({searched}).")
     frames = [f for f in frames if not f.empty]
     if not frames:
         raise FileNotFoundError(f"{data_root} altında kullanılabilir veri bulunamadı.")

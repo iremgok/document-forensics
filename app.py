@@ -14,6 +14,20 @@ Sayfa üç analiz üretir:
 
 from __future__ import annotations
 
+import logging
+import warnings
+
+import torch
+
+# Streamlit'in dosya izleyicisi modülleri tararken ``torch.classes.__path__``'e erişir;
+# bu özel modül ``__getattr__`` ile C++ sınıfı aramaya çalıştığı için şu uyarı düşer:
+# "Examining the path of torch.classes raised: RuntimeError: Tried to instantiate class '__path__._path'".
+# Boş bir ``__path__`` vermek izleyicinin modülü sessizce atlamasını sağlar.
+torch.classes.__path__ = []
+warnings.filterwarnings("ignore", message=r".*torch\.classes.*")
+warnings.filterwarnings("ignore", message=r".*Tried to instantiate class '__path__\._path'.*")
+logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
+
 import json
 from pathlib import Path
 from typing import Optional
@@ -22,12 +36,11 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-import torch
 
 from src.dataset import IMAGENET_MEAN, IMAGENET_STD, limit_long_side
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 
-CHECKPOINT_DIR = Path("checkpoints")
+CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
 PDF_DPI = 200
 
 
@@ -36,8 +49,8 @@ PDF_DPI = 200
 # ---------------------------------------------------------------------------
 
 def find_checkpoints() -> list[str]:
-    """``checkpoints/`` altındaki boş olmayan .pth dosyalarını listeler (en yeni önce)."""
-    paths = [p for p in CHECKPOINT_DIR.rglob("*.pth") if p.stat().st_size > 0]
+    """``checkpoints/`` ve ``runs/`` altındaki boş olmayan .pth dosyalarını listeler (en yeni önce)."""
+    paths = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
     return [str(p) for p in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)]
 
 
@@ -160,7 +173,7 @@ def main() -> None:
         checkpoints = find_checkpoints()
         ckpt = st.selectbox("Model ağırlığı", checkpoints) if checkpoints else None
         if not checkpoints:
-            st.warning("`checkpoints/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılacak.\n\n"
+            st.warning("`checkpoints/` veya `runs/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılacak.\n\n"
                        "Eğitim: `python train.py --sources synthetic`")
         threshold = st.slider("Piksel eşiği", 0.05, 0.95, 0.5, 0.05,
                               help="Bu olasılığın üzerindeki pikseller sahte bölge olarak boyanır.")
