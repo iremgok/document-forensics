@@ -48,6 +48,14 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     "synthetic": ("4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
 }
 
+#: DocTamper alt küme klasörleri (harf büyüklüğüne duyarsız eşleşir). Resmi dağıtımdaki
+#: ``DocTamperV1-*`` adları ``data_root`` altında doğrudan bulunursa kaynak kökü ``data_root`` olur.
+#: ``TrainingSet`` adını içeren küme eğitime girer; diğerleri resmi test kümeleridir.
+DOCTAMPER_SET_DIRS: tuple[str, ...] = (
+    "DocTamperV1-TrainingSet", "DocTamperV1-TestingSet", "DocTamperV1-FCD", "DocTamperV1-SCD",
+    "TrainingSet", "TestingSet", "FCD", "SCD",
+)
+
 #: Klasörün kendisinin bir kaynak olarak kabul edilmesini sağlayan işaret dosyaları.
 #: Örn. ``--data-root data/synthetic_fast`` doğrudan ``metadata.csv`` içerir.
 SOURCE_MARKERS: dict[str, str] = {
@@ -118,23 +126,54 @@ def _list_images(folder: Path) -> list[Path]:
     return sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS)
 
 
+def find_subdir(parent: Path, name: str) -> Optional[Path]:
+    """``parent`` altındaki ``name`` klasörünü harf büyüklüğüne duyarsız bulur (tam eşleşme önceliklidir).
+
+    Linux'ta (ör. Kaggle) dosya sistemi büyük/küçük harfe duyarlıdır; ``doctamperv1-trainingset``
+    ile ``DocTamperV1-TrainingSet`` aynı kabul edilir.
+    """
+    exact = parent / name
+    if exact.is_dir():
+        return exact
+    if not parent.is_dir():
+        return None
+    lowered = name.lower()
+    return next((p for p in sorted(parent.iterdir()) if p.name.lower() == lowered and p.is_dir()), None)
+
+
+def _doctamper_set_dirs(root: Path) -> list[Path]:
+    """``root`` altında ``images/`` içeren, adı ``DOCTAMPER_SET_DIRS``'ten biri olan küme klasörleri.
+
+    ``images/`` şartı, henüz dışa aktarılmamış ham LMDB klasörlerinin (``data.mdb``)
+    görüntü kaynağı sanılmasını önler.
+    """
+    if not root.is_dir():
+        return []
+    known = {n.lower() for n in DOCTAMPER_SET_DIRS}
+    return sorted(p for p in root.iterdir()
+                  if p.is_dir() and p.name.lower() in known and find_subdir(p, "images"))
+
+
 def resolve_source_dir(data_root: Path, source: str) -> Optional[Path]:
-    """Kaynağın klasörünü bulur.
+    """Kaynağın klasörünü bulur (klasör adları harf büyüklüğüne duyarsız).
 
     Arama sırası:
       1. ``data_root``'un kendisi (kaynağın işaret dosyası, ör. sentetik için
          ``metadata.csv``, doğrudan ``data_root`` altındaysa),
-      2. ``SOURCE_DIRS`` içindeki aday alt klasörler (ilk var olan).
+      2. ``SOURCE_DIRS`` içindeki aday alt klasörler (ilk var olan),
+      3. DocTamper için: ``data_root`` doğrudan ``DocTamperV1-TrainingSet`` /
+         ``DocTamperV1-TestingSet`` / ``DocTamperV1-FCD`` gibi küme klasörlerini içeriyorsa ``data_root``.
     """
     marker = SOURCE_MARKERS.get(source)
     if marker and (data_root / marker).is_file():
         return data_root
     for name in SOURCE_DIRS[source]:
-        candidate = data_root / name
-        if marker and not (candidate / marker).is_file():
+        candidate = find_subdir(data_root, name)
+        if candidate is None or (marker and not (candidate / marker).is_file()):
             continue
-        if candidate.is_dir():
-            return candidate
+        return candidate
+    if source == "doctamper" and _doctamper_set_dirs(data_root):
+        return data_root
     return None
 
 
@@ -277,7 +316,7 @@ def _manifest_aiforgedoc(root: Path, for_training: bool, cache_dir: Path) -> pd.
     return df[MANIFEST_COLUMNS]
 
 
-def _manifest_doctamper(root: Path, for_training: bool) -> pd.DataFrame:
+def _manifest_doctamper(root: Path, for_training: bool, known_sets_only: bool = False) -> pd.DataFrame:
     """DocTamper'ı (``export_doctamper_lmdb`` ile dışa aktarılmış hâliyle) okur.
 
     Beklenen yapı: ``<root>/<KümeAdı>/images/*.jpg`` ve ``<root>/<KümeAdı>/masks/*.png``.
@@ -289,11 +328,20 @@ def _manifest_doctamper(root: Path, for_training: bool) -> pd.DataFrame:
     test kümelerinden bağımsızdır ancak TrainingSet içi kaynak tekrarı ölçülemez.
     """
     rows = []
-    for set_dir in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+    # Kök ``data_root``'un kendisiyse (DocTamperV1-* doğrudan altında) yalnızca bilinen küme
+    # adları okunur; böylece diğer kaynakların klasörleri karışmaz. Ayrı DocTamper klasöründe
+    # ise tüm alt klasörler küme sayılır.
+    if known_sets_only:
+        set_dirs = _doctamper_set_dirs(root)
+    else:
+        set_dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    for set_dir in set_dirs:
         is_train = "train" in set_dir.name.lower()
         fixed = ("" if is_train else "test") if for_training else "ood"
-        for img in _list_images(set_dir / "images"):
-            mask = set_dir / "masks" / f"{img.stem}.png"
+        images_dir = find_subdir(set_dir, "images") or set_dir / "images"
+        masks_dir = find_subdir(set_dir, "masks") or set_dir / "masks"
+        for img in _list_images(images_dir):
+            mask = masks_dir / f"{img.stem}.png"
             # DocTamper'daki tüm görüntüler sahtedir; maske dosyası varlığı etiket için yeterli
             # (170 bin maskeyi yalnızca etiket için okumak gereksiz G/Ç olurdu).
             rows.append((str(img), str(mask) if mask.exists() else "", int(mask.exists()),
@@ -346,7 +394,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
         elif source == "aiforgedoc":
             frame = _manifest_aiforgedoc(root, for_training, cache_dir)
         elif source == "doctamper":
-            frame = _manifest_doctamper(root, for_training)
+            frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root)
         else:
             frame = _manifest_sroie(root, for_training)
         logger.info("%-11s %6d görüntü (%s)", source, len(frame), "eğitim" if for_training else "yalnız test/OOD")
@@ -356,6 +404,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
     if missing:
         searched = "; ".join(
             f"{s}: " + ", ".join(str(data_root / n) for n in ("",) + SOURCE_DIRS.get(s, ()))
+            + (f" veya {data_root}/{{{','.join(DOCTAMPER_SET_DIRS[:3])}}}/images" if s == "doctamper" else "")
             for s in missing)
         raise FileNotFoundError(f"Eğitim kaynağı için veri bulunamadı ({searched}).")
     frames = [f for f in frames if not f.empty]
