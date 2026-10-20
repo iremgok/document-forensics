@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import cv2
 import numpy as np
@@ -67,17 +68,80 @@ MANIFEST_COLUMNS = ["image_path", "mask_path", "label", "group_id", "source", "f
 
 
 # ---------------------------------------------------------------------------
+# DocTamper LMDB: diske çıkarmadan anlık okuma
+# ---------------------------------------------------------------------------
+#
+# Manifest'te LMDB kayıtları sanal yol olarak tutulur:
+#     ``lmdb://<lmdb_klasörü>::image-000000123``  (maske: ``...::label-000000123``)
+# ``read_image_rgb`` / ``read_mask`` bu önekle karşılaşınca baytı doğrudan LMDB'den alır.
+# Böylece /kaggle/input (salt okunur) üzerinden okunur; diske hiçbir şey yazılmaz.
+
+LMDB_PREFIX = "lmdb://"
+LMDB_SEP = "::"
+_LMDB_ENVS: dict[tuple[int, str], Any] = {}
+
+
+def _lmdb_env(lmdb_dir: str):
+    """Süreç başına tek LMDB ortamı (DataLoader worker'ları fork sonrası kendi ortamını açar)."""
+    key = (os.getpid(), lmdb_dir)
+    env = _LMDB_ENVS.get(key)
+    if env is None:
+        import lmdb  # Opsiyonel bağımlılık: pip install lmdb
+        # readonly + lock=False: salt okunur dosya sisteminde lock.mdb yazılmaz.
+        # readahead=False: rastgele erişimde gereksiz sayfa ön okumasını engeller.
+        env = lmdb.open(lmdb_dir, readonly=True, lock=False, readahead=False, meminit=False, max_readers=256)
+        _LMDB_ENVS[key] = env
+    return env
+
+
+def _read_bytes(path: str | Path) -> Optional[bytes | np.ndarray]:
+    """Dosya yolundan ya da ``lmdb://`` sanal yolundan ham baytları okur."""
+    path = str(path)
+    if path.startswith(LMDB_PREFIX):
+        lmdb_dir, key = path[len(LMDB_PREFIX):].rsplit(LMDB_SEP, 1)
+        with _lmdb_env(lmdb_dir).begin(write=False) as txn:
+            data = txn.get(key.encode())
+        return None if data is None else np.frombuffer(data, dtype=np.uint8)
+    return np.fromfile(path, dtype=np.uint8)
+
+
+def find_lmdb_dir(folder: Path, max_depth: int = 2) -> Optional[Path]:
+    """``folder`` ya da en fazla ``max_depth`` alt seviyesinde ``data.mdb`` içeren klasörü bulur."""
+    if (folder / "data.mdb").is_file():
+        return folder
+    if max_depth <= 0 or not folder.is_dir():
+        return None
+    for child in sorted(p for p in folder.iterdir() if p.is_dir()):
+        found = find_lmdb_dir(child, max_depth - 1)
+        if found is not None:
+            return found
+    return None
+
+
+def _lmdb_index_range(lmdb_dir: Path) -> range:
+    """LMDB'deki örnek indekslerini döndürür (DocTamper anahtarları 0 ya da 1'den başlayabilir).
+
+    Yalnızca ``num-samples`` ve en fazla iki anahtar kontrol edilir; görüntü baytları okunmaz.
+    """
+    with _lmdb_env(str(lmdb_dir)).begin(write=False) as txn:
+        n = int(txn.get(b"num-samples"))
+        cursor = txn.cursor()
+        start = 0 if cursor.set_key(b"image-000000000") else 1
+    return range(start, start + n)
+
+
+# ---------------------------------------------------------------------------
 # Yardımcı G/Ç fonksiyonları
 # ---------------------------------------------------------------------------
 
 def read_image_rgb(path: str | Path) -> np.ndarray:
-    """Görüntüyü RGB uint8 olarak okur.
+    """Görüntüyü RGB uint8 olarak okur (dosya ya da ``lmdb://`` sanal yolu).
 
     ``cv2.imread`` Windows'ta Türkçe karakter içeren yollarda başarısız olduğu için
     dosya önce bayt olarak okunup ``cv2.imdecode`` ile çözülür.
     """
-    buffer = np.fromfile(str(path), dtype=np.uint8)
-    image = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+    buffer = _read_bytes(path)
+    image = None if buffer is None else cv2.imdecode(buffer, cv2.IMREAD_COLOR)
     if image is None:
         raise IOError(f"Görüntü okunamadı: {path}")
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -91,8 +155,8 @@ def read_mask(path: str | Path | None, shape: tuple[int, int]) -> np.ndarray:
     """
     if not path or (isinstance(path, float) and np.isnan(path)):
         return np.zeros(shape, dtype=np.uint8)
-    buffer = np.fromfile(str(path), dtype=np.uint8)
-    mask = cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
+    buffer = _read_bytes(path)
+    mask = None if buffer is None else cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
     if mask is None:
         raise IOError(f"Maske okunamadı: {path}")
     if mask.shape != shape:
@@ -142,16 +206,17 @@ def find_subdir(parent: Path, name: str) -> Optional[Path]:
 
 
 def _doctamper_set_dirs(root: Path) -> list[Path]:
-    """``root`` altında ``images/`` içeren, adı ``DOCTAMPER_SET_DIRS``'ten biri olan küme klasörleri.
+    """``root`` altında adı ``DOCTAMPER_SET_DIRS``'ten biri olan küme klasörleri.
 
-    ``images/`` şartı, henüz dışa aktarılmamış ham LMDB klasörlerinin (``data.mdb``)
-    görüntü kaynağı sanılmasını önler.
+    Küme, ya dışa aktarılmış ``images/`` klasörü ya da ham LMDB (``data.mdb``, en fazla
+    iki alt seviyede) içermelidir; LMDB doğrudan okunur (bkz. ``_manifest_doctamper``).
     """
     if not root.is_dir():
         return []
     known = {n.lower() for n in DOCTAMPER_SET_DIRS}
     return sorted(p for p in root.iterdir()
-                  if p.is_dir() and p.name.lower() in known and find_subdir(p, "images"))
+                  if p.is_dir() and p.name.lower() in known
+                  and (find_subdir(p, "images") or find_lmdb_dir(p)))
 
 
 def resolve_source_dir(data_root: Path, source: str) -> Optional[Path]:
@@ -316,12 +381,18 @@ def _manifest_aiforgedoc(root: Path, for_training: bool, cache_dir: Path) -> pd.
     return df[MANIFEST_COLUMNS]
 
 
-def _manifest_doctamper(root: Path, for_training: bool, known_sets_only: bool = False) -> pd.DataFrame:
-    """DocTamper'ı (``export_doctamper_lmdb`` ile dışa aktarılmış hâliyle) okur.
+def _manifest_doctamper(root: Path, for_training: bool, known_sets_only: bool = False,
+                        max_train_images: int = 0, seed: int = 42) -> pd.DataFrame:
+    """DocTamper'ı okur: ham LMDB'den doğrudan ya da dışa aktarılmış klasörlerden.
 
-    Beklenen yapı: ``<root>/<KümeAdı>/images/*.jpg`` ve ``<root>/<KümeAdı>/masks/*.png``.
+    Desteklenen yapılar (küme başına ilk bulunan kullanılır):
+      * ``<root>/<KümeAdı>/images/*.jpg`` + ``masks/*.png`` (``export_doctamper_lmdb`` çıktısı),
+      * ``<root>/<KümeAdı>/[alt/]data.mdb`` (ham LMDB; diske yazmadan ``lmdb://`` sanal yollarıyla).
     ``TrainingSet`` adını içeren küme grup bazlı bölünür; ``TestingSet``, ``FCD``,
     ``SCD`` kümeleri resmi test kümeleridir ve daima ``test`` olarak kalır.
+
+    ``max_train_images > 0`` ise TrainingSet'ten ``seed``'li, sabit bir alt küme alınır
+    (test kümeleri etkilenmez). Alt küme deterministik olduğundan ``--resume`` sonrası aynıdır.
 
     Sınırlama: DocTamper, sahte görüntülerin kaynak belge kimliğini yayınlamaz. Bu
     nedenle TrainingSet içinde her görüntü kendi grubudur; train/val ayrımı resmi
@@ -338,14 +409,30 @@ def _manifest_doctamper(root: Path, for_training: bool, known_sets_only: bool = 
     for set_dir in set_dirs:
         is_train = "train" in set_dir.name.lower()
         fixed = ("" if is_train else "test") if for_training else "ood"
-        images_dir = find_subdir(set_dir, "images") or set_dir / "images"
-        masks_dir = find_subdir(set_dir, "masks") or set_dir / "masks"
-        for img in _list_images(images_dir):
-            mask = masks_dir / f"{img.stem}.png"
-            # DocTamper'daki tüm görüntüler sahtedir; maske dosyası varlığı etiket için yeterli
-            # (170 bin maskeyi yalnızca etiket için okumak gereksiz G/Ç olurdu).
-            rows.append((str(img), str(mask) if mask.exists() else "", int(mask.exists()),
-                         f"doctamper:{set_dir.name}/{img.stem}", fixed))
+        images_dir = find_subdir(set_dir, "images")
+        lmdb_dir = None if images_dir else find_lmdb_dir(set_dir)
+        set_rows = []
+        if images_dir:
+            masks_dir = find_subdir(set_dir, "masks") or set_dir / "masks"
+            for img in _list_images(images_dir):
+                mask = masks_dir / f"{img.stem}.png"
+                # DocTamper'daki tüm görüntüler sahtedir; maske dosyası varlığı etiket için yeterli
+                # (170 bin maskeyi yalnızca etiket için okumak gereksiz G/Ç olurdu).
+                set_rows.append((str(img), str(mask) if mask.exists() else "", int(mask.exists()),
+                                 f"doctamper:{set_dir.name}/{img.stem}", fixed))
+        elif lmdb_dir:
+            # Görüntü baytları burada okunmaz; yalnızca indeks aralığı belirlenir (saniyeler sürer).
+            # DocTamper'daki her örneğin ``label-*`` maskesi vardır ve tamamı sahtedir.
+            base = f"{LMDB_PREFIX}{lmdb_dir.as_posix()}{LMDB_SEP}"
+            for i in _lmdb_index_range(lmdb_dir):
+                set_rows.append((f"{base}image-{i:09d}", f"{base}label-{i:09d}", 1,
+                                 f"doctamper:{set_dir.name}/{i:09d}", fixed))
+            logger.info("DocTamper LMDB (anlık okuma): %s → %d örnek", lmdb_dir, len(set_rows))
+        if is_train and 0 < max_train_images < len(set_rows):
+            keep = np.random.default_rng(seed).choice(len(set_rows), size=max_train_images, replace=False)
+            set_rows = [set_rows[k] for k in sorted(keep)]
+            logger.info("DocTamper %s: %d örneklik sabit alt küme kullanılıyor.", set_dir.name, max_train_images)
+        rows.extend(set_rows)
     df = pd.DataFrame(rows, columns=["image_path", "mask_path", "label", "group_id", "fixed_split"])
     df["source"] = "doctamper"
     return df[MANIFEST_COLUMNS]
@@ -370,7 +457,8 @@ def _manifest_sroie(root: Path, for_training: bool = False) -> pd.DataFrame:
 
 
 def build_manifest(data_root: str | Path, train_sources: Sequence[str],
-                   cache_dir: str | Path = "data/splits") -> pd.DataFrame:
+                   cache_dir: str | Path = "data/splits", doctamper_max: int = 0,
+                   seed: int = 42) -> pd.DataFrame:
     """
     Tüm veri kaynaklarını tek bir manifest'te toplar.
 
@@ -380,6 +468,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
             (ör. ``["synthetic", "doctamper"]``). Listede olmayan kaynaklar
             ``ood`` olarak işaretlenir (``sroie2019`` dahil).
         cache_dir: AIForge-Doc grup önbelleğinin yazılacağı klasör.
+        doctamper_max: > 0 ise DocTamper TrainingSet'ten ``seed``'li sabit alt küme boyutu.
     """
     data_root, cache_dir = Path(data_root), Path(cache_dir)
     frames = []
@@ -394,7 +483,8 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
         elif source == "aiforgedoc":
             frame = _manifest_aiforgedoc(root, for_training, cache_dir)
         elif source == "doctamper":
-            frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root)
+            frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root,
+                                        max_train_images=doctamper_max, seed=seed)
         else:
             frame = _manifest_sroie(root, for_training)
         logger.info("%-11s %6d görüntü (%s)", source, len(frame), "eğitim" if for_training else "yalnız test/OOD")

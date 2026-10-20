@@ -24,6 +24,7 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --sources synthetic --epochs 40 --batch-size 8
     python train.py --sources synthetic aiforgedoc --init checkpoints/base/best.pth --lr 1e-4
     python train.py --stage stageA --samples-per-epoch 20000
+    python train.py --stage stageA --data-root /kaggle/input/.../doctamper --doctamper-max 30000  # LMDB doğrudan
     python train.py --stage stageA --resume /kaggle/working/last.pth   # kesintiden sonra
     python train.py --stage stageB
 """
@@ -33,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import shutil
 import time
@@ -88,6 +90,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--samples-per-epoch", type=int, default=20000,
                    help="Epoch başına rastgele örneklenen eğitim görüntüsü (her epoch yeni örneklem); "
                         "0 = tüm eğitim kümesi")
+    p.add_argument("--doctamper-max", type=int, default=0,
+                   help="DocTamper TrainingSet'ten seed'li sabit alt küme boyutu (train+val bundan ayrılır); "
+                        "0 = tamamı. LMDB doğrudan okunduğu için diske yazma gerekmez.")
     p.add_argument("--val-samples", type=int, default=2000,
                    help="Her epoch kullanılan sabit val alt kümesi boyutu (tam çözünürlük validasyon "
                         "pahalıdır); 0 = tüm val kümesi. evaluate.py etkilenmez.")
@@ -250,7 +255,12 @@ def main() -> None:
                                 + (" (önce --stage stageA çalıştırın)" if args.stage == "stageB" else ""))
 
     # --- 1) Sızıntısız bölümleme -------------------------------------------------
-    manifest = build_manifest(args.data_root, args.sources, cache_dir=Path(args.data_root) / "splits")
+    # /kaggle/input salt okunurdur: önbellek yazılamıyorsa run_dir altına yazılır.
+    cache_dir = Path(args.data_root) / "splits"
+    if not os.access(args.data_root, os.W_OK):
+        cache_dir = run_dir / "splits"
+    manifest = build_manifest(args.data_root, args.sources, cache_dir=cache_dir,
+                              doctamper_max=args.doctamper_max, seed=args.seed)
     splits = assign_splits(manifest, seed=args.seed)
     splits.to_csv(run_dir / "splits.csv", index=False)
     train_df, val_df = splits[splits["split"] == "train"], splits[splits["split"] == "val"]
