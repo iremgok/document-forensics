@@ -45,7 +45,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 
-from src.dataset import ForgeryDataset, assign_splits, build_manifest, build_transforms
+from src.dataset import (ForgeryDataset, assign_splits, build_manifest, build_transforms, close_lmdb_envs,
+                         worker_init_fn)
 from src.losses import ForensicLoss
 from src.metrics import PixelMetrics, image_level_metrics
 from src.models import DualStreamForensicNet, save_checkpoint, sliding_window_predict
@@ -100,6 +101,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--monitor", default="score", choices=["score", "pixel_f1", "image_auc", "loss"],
                    help="score = (pixel_f1 + image_auc) / 2")
     p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--mp-context", default="spawn", choices=["spawn", "forkserver", "fork"],
+                   help="DataLoader worker başlatma yöntemi. spawn: LMDB/OpenCV durumu worker'lara miras "
+                        "kalmaz (fork kilitlenmelerini önler); worker'lar epoch'lar arası kalıcıdır.")
+    p.add_argument("--log-every", type=int, default=50, help="Kaç adımda bir ilerleme günlüğü yazılacağı")
+    p.add_argument("--benchmark-loader", type=int, default=0,
+                   help="> 0 ise modeli eğitmeden yalnızca bu kadar batch okuyup veri hızını ölçer ve çıkar")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-amp", action="store_true", help="Karışık hassasiyeti kapat")
     return apply_stage_presets(p.parse_args())
@@ -178,11 +185,18 @@ class MetricLogger:
 
 def train_one_epoch(model: DualStreamForensicNet, loader: DataLoader, criterion: ForensicLoss,
                     optimizer: torch.optim.Optimizer, scaler: torch.amp.GradScaler, device: torch.device,
-                    use_amp: bool) -> dict[str, float]:
-    """Bir epoch eğitim; kayıp bileşenlerinin ortalamasını döndürür."""
+                    use_amp: bool, log_every: int = 50) -> dict[str, float]:
+    """Bir epoch eğitim; kayıp bileşenlerinin ortalamasını döndürür.
+
+    ``log_every`` adımda bir hız ve veri bekleme oranı yazılır: ``veri_bekleme`` yüksekse
+    (> %50) darboğaz DataLoader'dır (worker sayısı / G/Ç), düşükse GPU'dur.
+    """
     model.train()
     totals: dict[str, float] = {}
-    for batch in loader:
+    start = tick = time.time()
+    wait = 0.0
+    for step, batch in enumerate(loader, 1):
+        wait += time.time() - tick
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
@@ -196,21 +210,28 @@ def train_one_epoch(model: DualStreamForensicNet, loader: DataLoader, criterion:
         scaler.update()
         for key, value in losses.items():
             totals[key] = totals.get(key, 0.0) + float(value.detach())
+        if log_every and (step % log_every == 0 or step == 1):
+            elapsed = time.time() - start
+            logger.info("  adım %d/%d | loss=%.4f | %.1f görüntü/s | veri_bekleme=%%%d | kalan≈%.0f dk",
+                        step, len(loader), totals["loss"] / step, step * images.size(0) / elapsed,
+                        100 * wait / elapsed, elapsed / step * (len(loader) - step) / 60)
+        tick = time.time()
     return {f"train/{k}": v / max(len(loader), 1) for k, v in totals.items()}
 
 
 @torch.no_grad()
-def validate(model: DualStreamForensicNet, dataset: ForgeryDataset, criterion: ForensicLoss,
+def validate(model: DualStreamForensicNet, loader: DataLoader, criterion: ForensicLoss,
              crop_size: int, use_amp: bool = False) -> dict[str, float]:
     """
     Validasyon: her belge tam çözünürlükte kayan pencere ile işlenir (uygulamadaki
     çıkarımla birebir aynı). Kayıp, tam görüntü olasılık haritası üzerinden hesaplanır.
+    Görüntüler ``batch_size=1`` DataLoader worker'larında okunur; ana süreç LMDB açmaz.
     """
     model.eval()
     pixel = PixelMetrics()
     doc_logits, labels, losses = [], [], []
-    for i in range(len(dataset)):
-        sample = dataset[i]
+    for batch in loader:
+        sample = {k: v[0] for k, v in batch.items()}
         with torch.autocast(device_type=next(model.parameters()).device.type, enabled=use_amp):
             prob_map, doc_logit = sliding_window_predict(model, sample["image"], tile=crop_size)
         gt = sample["mask"][0].numpy()
@@ -225,6 +246,24 @@ def validate(model: DualStreamForensicNet, dataset: ForgeryDataset, criterion: F
     auc = metrics["image_auc"] if not np.isnan(metrics["image_auc"]) else 0.5
     metrics["score"] = (metrics["pixel_f1"] + auc) / 2
     return {f"val/{k}": v for k, v in metrics.items()}
+
+
+def benchmark_loader(loader: DataLoader, n_batches: int) -> None:
+    """Modelsiz veri okuma hızı testi: worker başlangıç süresi ve sürekli görüntü/s."""
+    logger.info("Veri yükleyici testi: %d batch okunacak (model yok)...", n_batches)
+    start = time.time()
+    first = None
+    for step, batch in enumerate(loader, 1):
+        if first is None:
+            first = time.time() - start
+            logger.info("  ilk batch %.1f s'de geldi (worker başlangıcı dahil) | %s", first,
+                        tuple(batch["image"].shape))
+        if step % 10 == 0:
+            rate = (step - 1) * batch["image"].size(0) / max(time.time() - start - first, 1e-6)
+            logger.info("  %d/%d batch | %.1f görüntü/s", step, n_batches, rate)
+        if step >= n_batches:
+            break
+    logger.info("Veri yükleyici testi bitti: %.1f s", time.time() - start)
 
 
 def main() -> None:
@@ -280,9 +319,22 @@ def main() -> None:
         # Her epoch eğitim kümesinden yinelemesiz yeni bir rastgele örneklem çekilir.
         sampler = RandomSampler(train_ds, replacement=False, num_samples=args.samples_per_epoch)
         logger.info("Epoch başına %d / %d eğitim görüntüsü örneklenecek.", args.samples_per_epoch, len(train_ds))
+    # Worker'lar başlamadan önce ana süreçte açık LMDB ortamı kalmamalı (fork mirası → kilitlenme).
+    close_lmdb_envs()
+    workers = {}
+    if args.num_workers > 0:
+        workers = dict(num_workers=args.num_workers, multiprocessing_context=args.mp_context,
+                       worker_init_fn=worker_init_fn, persistent_workers=True, prefetch_factor=4)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
-                              drop_last=True, num_workers=args.num_workers, pin_memory=device.type == "cuda",
-                              persistent_workers=args.num_workers > 0)
+                              drop_last=True, pin_memory=device.type == "cuda", **workers)
+    val_workers = {**workers, "num_workers": min(args.num_workers, 2), "prefetch_factor": 2} if workers else {}
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, **val_workers)
+    logger.info("DataLoader: %d worker (%s), batch=%d, %d adım/epoch",
+                args.num_workers, args.mp_context if workers else "ana süreç", args.batch_size, len(train_loader))
+
+    if args.benchmark_loader > 0:
+        benchmark_loader(train_loader, args.benchmark_loader)
+        return
 
     # --- 3) Model, kayıp, optimizasyon -------------------------------------------
     pretrained = bool(args.init) or resume_ckpt is not None
@@ -327,8 +379,10 @@ def main() -> None:
     for epoch in range(start_epoch, args.epochs + 1):
         logger.info("Epoch %d/%d", epoch, args.epochs)
         start = time.time()
-        metrics = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
-        metrics.update(validate(model, val_ds, criterion, args.crop_size, use_amp))
+        metrics = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp,
+                                  args.log_every)
+        logger.info("Validasyon (%d görüntü)...", len(val_ds))
+        metrics.update(validate(model, val_loader, criterion, args.crop_size, use_amp))
         metrics["lr"] = optimizer.param_groups[0]["lr"]
         metrics["time_s"] = time.time() - start
         tracker.log(epoch, metrics)

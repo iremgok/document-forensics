@@ -71,27 +71,80 @@ MANIFEST_COLUMNS = ["image_path", "mask_path", "label", "group_id", "source", "f
 # DocTamper LMDB: diske çıkarmadan anlık okuma
 # ---------------------------------------------------------------------------
 
+#
+# Fork güvenliği (Kaggle/Linux'ta DataLoader worker'ları fork ile açılır):
+#   * LMDB, bir ortamın fork sonrası alt süreçte kullanılmasını yasaklar (kilitlenme).
+#   * py-lmdb ≥ 2 açık ortamları süreç genelinde bir kayıtta tutar ve aynı dosyayı ikinci
+#     kez açmayı reddeder ("already open in this process"). Bu kayıt fork ile alt sürece
+#     *miras kalır*: ebeveynde açık kalan bir ortam, worker'da yeniden açılmayı engeller.
+# Bu yüzden: (1) ortamlar süreç kimliğiyle (PID) sahiplenilir, miras alınanlara dokunulmaz;
+# (2) ebeveyn, worker'lar başlamadan önce ``close_lmdb_envs()`` ile kendi ortamlarını kapatır;
+# (3) train.py worker'ları varsayılan olarak ``spawn`` ile başlatır (miras hiç oluşmaz).
+
 LMDB_PREFIX = "lmdb://"
 LMDB_SEP = "::"
 _LMDB_ENVS: dict[str, Any] = {}
+_LMDB_OWNER_PID: Optional[int] = None
+
+
+def _open_lmdb(lmdb_dir: str):
+    import lmdb  # Opsiyonel bağımlılık: pip install lmdb
+    # readonly + lock=False: salt okunur /kaggle/input'a lock.mdb yazılmaz.
+    # readahead=False: rastgele erişimde gereksiz sayfa ön okumasını engeller.
+    try:
+        return lmdb.open(lmdb_dir, readonly=True, lock=False, readahead=False, meminit=False,
+                         max_readers=512)
+    except lmdb.Error as exc:
+        if "already open" in str(exc):
+            raise RuntimeError(
+                f"{lmdb_dir} bu süreçte zaten açık (ebeveyn süreçten fork ile miras kalmış olabilir). "
+                "DataLoader worker'larını başlatmadan önce close_lmdb_envs() çağırın ya da "
+                "--mp-context spawn kullanın.") from exc
+        raise
 
 
 def _lmdb_env(lmdb_dir: str | Path):
-    """Worker / süreç düzeyinde güvenli LMDB ortam yöneticisi."""
-    global _LMDB_ENVS
-    import lmdb  # Opsiyonel bağımlılık
+    """Bu sürece ait LMDB ortamını döndürür; gerekirse açar.
+
+    Fork ile miras alınan ortamlar ebeveyne aittir: kapatılmaz (kapatmak ebeveynin
+    mmap/okuyucu durumunu bozar), yalnızca bu sürecin önbelleğinden düşürülür.
+    """
+    global _LMDB_OWNER_PID
+    pid = os.getpid()
+    if _LMDB_OWNER_PID != pid:
+        _LMDB_ENVS.clear()
+        _LMDB_OWNER_PID = pid
     key = str(lmdb_dir)
-    if key not in _LMDB_ENVS or _LMDB_ENVS[key] is None:
-        _LMDB_ENVS[key] = lmdb.open(
-            key,
-            readonly=True,
-            lock=False,
-            readahead=False,
-            meminit=False,
-            max_readers=512,
-            max_dbs=10
-        )
-    return _LMDB_ENVS[key]
+    env = _LMDB_ENVS.get(key)
+    if env is None:
+        env = _LMDB_ENVS[key] = _open_lmdb(key)
+    return env
+
+
+def close_lmdb_envs() -> None:
+    """Bu sürecin açtığı tüm LMDB ortamlarını kapatır.
+
+    Ana süreçte DataLoader worker'ları başlamadan (fork'tan) önce çağrılmalıdır;
+    ortamlar bir sonraki okumada gerektiğinde yeniden açılır (milisaniyeler).
+    """
+    if _LMDB_OWNER_PID == os.getpid():
+        for env in _LMDB_ENVS.values():
+            env.close()
+    _LMDB_ENVS.clear()
+
+
+def worker_init_fn(worker_id: int) -> None:
+    """DataLoader worker başlangıcı: miras önbelleği bırak, iş parçacığı çakışmalarını önle.
+
+    OpenCV'nin ve PyTorch'un kendi iş parçacığı havuzları fork sonrası kilitlenebilir ve
+    N worker × M iş parçacığı CPU'yu aşırı yükler; her worker tek iş parçacığıyla çalışır.
+    """
+    global _LMDB_OWNER_PID
+    _LMDB_ENVS.clear()
+    _LMDB_OWNER_PID = os.getpid()
+    cv2.setNumThreads(0)
+    cv2.ocl.setUseOpenCL(False)
+    torch.set_num_threads(1)
 
 
 def _read_bytes(path: str | Path) -> Optional[bytes | np.ndarray]:
@@ -119,11 +172,14 @@ def find_lmdb_dir(folder: Path, max_depth: int = 2) -> Optional[Path]:
 
 
 def _lmdb_index_range(lmdb_dir: Path) -> range:
-    """LMDB'deki örnek indekslerini döndürür (DocTamper anahtarları 0 ya da 1'den başlayabilir)."""
-    with _lmdb_env(str(lmdb_dir)).begin(write=False) as txn:
+    """LMDB'deki örnek indekslerini döndürür (DocTamper anahtarları 0 ya da 1'den başlayabilir).
+
+    Geçici bir ortam açılıp hemen kapatılır: manifest oluşturulduktan sonra ana süreçte
+    açık LMDB ortamı kalmaz (bkz. fork güvenliği notu).
+    """
+    with _open_lmdb(str(lmdb_dir)) as env, env.begin(write=False) as txn:
         n = int(txn.get(b"num-samples"))
-        cursor = txn.cursor()
-        start = 0 if cursor.set_key(b"image-000000000") else 1
+        start = 0 if txn.cursor().set_key(b"image-000000000") else 1
     return range(start, start + n)
 
 
