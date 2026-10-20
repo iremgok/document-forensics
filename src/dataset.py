@@ -303,8 +303,13 @@ def _manifest_doctamper(root: Path, for_training: bool) -> pd.DataFrame:
     return df[MANIFEST_COLUMNS]
 
 
-def _manifest_sroie(root: Path) -> pd.DataFrame:
-    """SROIE2019 fişleri: tamamı orijinaldir (label=0) ve yalnızca OOD yanlış-alarm testi içindir."""
+def _manifest_sroie(root: Path, for_training: bool = False) -> pd.DataFrame:
+    """SROIE2019 fişleri: tamamı orijinaldir (label=0).
+
+    Varsayılan olarak yalnızca OOD yanlış-alarm testi içindir. ``for_training`` ise
+    (ör. Stage B ince ayarında negatif örnek olarak) diğer kaynaklar gibi
+    train/val/test'e bölünür; bu durumda artık OOD değildir.
+    """
     images = sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)
     return pd.DataFrame({
         "image_path": [str(p) for p in images],
@@ -312,7 +317,7 @@ def _manifest_sroie(root: Path) -> pd.DataFrame:
         "label": 0,
         "group_id": [f"sroie2019:{p.stem}" for p in images],
         "source": "sroie2019",
-        "fixed_split": "ood",
+        "fixed_split": "" if for_training else "ood",
     })
 
 
@@ -325,7 +330,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
         data_root: ``data/`` klasörü.
         train_sources: Eğitim/validasyonda kullanılacak kaynaklar
             (ör. ``["synthetic", "doctamper"]``). Listede olmayan kaynaklar
-            ``ood`` olarak işaretlenir. ``sroie2019`` daima ``ood``'dur.
+            ``ood`` olarak işaretlenir (``sroie2019`` dahil).
         cache_dir: AIForge-Doc grup önbelleğinin yazılacağı klasör.
     """
     data_root, cache_dir = Path(data_root), Path(cache_dir)
@@ -343,7 +348,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
         elif source == "doctamper":
             frame = _manifest_doctamper(root, for_training)
         else:
-            frame = _manifest_sroie(root)
+            frame = _manifest_sroie(root, for_training)
         logger.info("%-11s %6d görüntü (%s)", source, len(frame), "eğitim" if for_training else "yalnız test/OOD")
         frames.append(frame)
     found = {f["source"].iloc[0] for f in frames if not f.empty}

@@ -143,11 +143,21 @@ class DualStreamForensicNet(nn.Module):
 # ---------------------------------------------------------------------------
 
 def save_checkpoint(path: str | Path, model: DualStreamForensicNet, config: dict[str, Any],
-                    epoch: int, metrics: dict[str, float]) -> None:
-    """Model ağırlıklarını ve yeniden kurulum için gerekli yapılandırmayı kaydeder."""
+                    epoch: int, metrics: dict[str, float], extra: Optional[dict[str, Any]] = None) -> None:
+    """
+    Model ağırlıklarını ve yeniden kurulum için gerekli yapılandırmayı kaydeder.
+
+    ``extra`` (ör. optimizer/scheduler/scaler durumları) eğitime kaldığı yerden devam
+    etmek için kayda eklenir. Dosya önce geçici ada yazılıp sonra yerine taşınır;
+    böylece kayıt sırasında oturum kesilirse önceki kontrol noktası bozulmaz.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model_state": model.state_dict(), "config": config, "epoch": epoch, "metrics": metrics}, path)
+    payload = {"model_state": model.state_dict(), "config": config, "epoch": epoch, "metrics": metrics,
+               **(extra or {})}
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(payload, tmp)
+    tmp.replace(path)
 
 
 def load_model(path: str | Path, device: torch.device | str = "cpu"

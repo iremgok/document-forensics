@@ -65,6 +65,23 @@ streamlit run app.py
 
 TensorBoard kuruluysa: `tensorboard --logdir checkpoints`.
 
+### Kaggle: aşamalı eğitim ve kaldığı yerden devam
+
+`/kaggle/working` varsa çıktılar varsayılan olarak oraya yazılır (`last.pth`, `best.pth`, `<stage>_best.pth`).
+`last.pth` optimizer, scheduler, AMP ölçekleyici ve erken durdurma durumunu da içerir.
+
+```bash
+# Stage A — DocTamper temel eğitim (epoch başına 20 000 örnek, val için sabit 2000 görüntü)
+python train.py --stage stageA --samples-per-epoch 20000
+# Oturum kesildiyse kaldığı epoch'tan devam
+python train.py --stage stageA --resume /kaggle/working/last.pth
+# Stage B — stageA_best.pth'den Türkçe sentetik + SROIE2019 ile ince ayar (lr=1e-5)
+python train.py --stage stageB
+```
+
+Stage B'de SROIE2019 eğitime girdiği için OOD yanlış-alarm testi olarak kullanılamaz.
+`--samples-per-epoch 0` / `--val-samples 0` tüm kümeyi kullanır; karışık hassasiyet (AMP) GPU'da varsayılan olarak açıktır (`--no-amp` ile kapatılır).
+
 DocTamper LMDB'yi klasöre aktarmak için (`pip install lmdb`):
 
 ```bash

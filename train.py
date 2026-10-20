@@ -9,10 +9,23 @@ Akış:
      ``test`` ve ``ood`` satırları bu betikte hiçbir hesaba girmez.
   3. Her epoch sonunda: konsol + (kuruluysa) TensorBoard günlüğü, ``last.pth`` ve
      izlenen metrik iyileştiyse ``best.pth`` kaydı, erken durdurma kontrolü.
+     ``last.pth`` optimizer/scheduler/AMP ölçekleyici durumunu da içerir; ``--resume``
+     ile kesilen eğitim (ör. Kaggle oturum sınırı) kaldığı epoch'tan sürer.
+
+Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
+  * ``stageA``: DocTamper üzerinde temel eğitim (lr=3e-4). En iyi model ayrıca
+    ``<run_dir>/stageA_best.pth`` olarak saklanır.
+  * ``stageB``: ``stageA_best.pth`` yüklenir; Türkçe sentetik + SROIE2019 üzerinde
+    lr=1e-5 ile ince ayar. SROIE2019 bu aşamada eğitime girdiği için OOD değildir.
+
+Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
 
 Örnek:
     python train.py --sources synthetic --epochs 40 --batch-size 8
     python train.py --sources synthetic aiforgedoc --init checkpoints/base/best.pth --lr 1e-4
+    python train.py --stage stageA --samples-per-epoch 20000
+    python train.py --stage stageA --resume /kaggle/working/last.pth   # kesintiden sonra
+    python train.py --stage stageB
 """
 
 from __future__ import annotations
@@ -21,13 +34,14 @@ import argparse
 import json
 import logging
 import random
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 
 from src.dataset import ForgeryDataset, assign_splits, build_manifest, build_transforms
 from src.losses import ForensicLoss
@@ -36,30 +50,69 @@ from src.models import DualStreamForensicNet, save_checkpoint, sliding_window_pr
 
 logger = logging.getLogger("train")
 
+KAGGLE_WORKING = Path("/kaggle/working")
+
+#: ``--stage`` ön ayarları; komut satırında açıkça verilen değerler önceliklidir.
+#: Göreli ``init`` yolu bulunamazsa ``run_dir`` altında aranır.
+STAGE_PRESETS: dict[str, dict[str, Any]] = {
+    "stageA": {"sources": ["doctamper"], "lr": 3e-4},
+    "stageB": {"sources": ["synthetic", "sroie2019"], "lr": 1e-5, "init": "stageA_best.pth"},
+}
+DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RGB+SRM çift akışlı sahtecilik modeli eğitimi")
     p.add_argument("--data-root", default="data")
-    p.add_argument("--sources", nargs="+", default=["synthetic"],
-                   choices=["synthetic", "doctamper", "aiforgedoc"],
-                   help="Eğitim/val'de kullanılacak kaynaklar; diğerleri yalnızca test/OOD olur.")
-    p.add_argument("--run-dir", default="checkpoints/run")
+    p.add_argument("--stage", default=None, choices=sorted(STAGE_PRESETS),
+                   help="Aşamalı eğitim ön ayarı: stageA = DocTamper temel eğitim, "
+                        "stageB = stageA_best.pth'den sentetik + SROIE ince ayar (lr=1e-5)")
+    p.add_argument("--sources", nargs="+", default=None,
+                   choices=["synthetic", "doctamper", "aiforgedoc", "sroie2019"],
+                   help="Eğitim/val'de kullanılacak kaynaklar; diğerleri yalnızca test/OOD olur. "
+                        "Varsayılan: synthetic (veya --stage ön ayarı).")
+    p.add_argument("--run-dir", default=None,
+                   help="Çıktı klasörü. Varsayılan: Kaggle'da /kaggle/working, aksi hâlde checkpoints/run")
     p.add_argument("--init", default=None, help="İnce ayar için başlangıç kontrol noktası (.pth)")
+    p.add_argument("--resume", default=None,
+                   help="Kaldığı yerden devam: last.pth yolu (model + optimizer + scheduler + epoch). "
+                        "Klasör verilirse içindeki last.pth kullanılır.")
     p.add_argument("--encoder", default="efficientnet-b4")
     p.add_argument("--encoder-weights", default="imagenet", help="'none' ile rastgele başlatma")
     p.add_argument("--crop-size", type=int, default=512)
     p.add_argument("--max-side", type=int, default=1600, help="Uzun kenar sınırı (yalnızca küçültme)")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--epochs", type=int, default=50)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=None, help="Varsayılan: 3e-4 (stageB: 1e-5)")
     p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--samples-per-epoch", type=int, default=20000,
+                   help="Epoch başına rastgele örneklenen eğitim görüntüsü (her epoch yeni örneklem); "
+                        "0 = tüm eğitim kümesi")
+    p.add_argument("--val-samples", type=int, default=2000,
+                   help="Her epoch kullanılan sabit val alt kümesi boyutu (tam çözünürlük validasyon "
+                        "pahalıdır); 0 = tüm val kümesi. evaluate.py etkilenmez.")
     p.add_argument("--patience", type=int, default=8, help="Erken durdurma sabrı (epoch)")
     p.add_argument("--monitor", default="score", choices=["score", "pixel_f1", "image_auc", "loss"],
                    help="score = (pixel_f1 + image_auc) / 2")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-amp", action="store_true", help="Karışık hassasiyeti kapat")
-    return p.parse_args()
+    return apply_stage_presets(p.parse_args())
+
+
+def apply_stage_presets(args: argparse.Namespace) -> argparse.Namespace:
+    """``--stage`` ön ayarlarını ve genel varsayılanları yalnızca boş bırakılan argümanlara uygular."""
+    preset = STAGE_PRESETS.get(args.stage, {}) if args.stage else {}
+    for key, default in DEFAULTS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, preset.get(key, default))
+    if args.run_dir is None:
+        args.run_dir = str(KAGGLE_WORKING if KAGGLE_WORKING.is_dir() else Path("checkpoints/run"))
+    if args.init and not Path(args.init).is_absolute() and not Path(args.init).exists():
+        args.init = str(Path(args.run_dir) / args.init)
+    if args.resume and Path(args.resume).is_dir():
+        args.resume = str(Path(args.resume) / "last.pth")
+    return args
 
 
 def seed_everything(seed: int) -> None:
@@ -77,6 +130,12 @@ class EarlyStopping:
         self.patience, self.mode, self.min_delta = patience, mode, min_delta
         self.best: Optional[float] = None
         self.bad_epochs = 0
+
+    def state_dict(self) -> dict[str, Any]:
+        return {"best": self.best, "bad_epochs": self.bad_epochs}
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.best, self.bad_epochs = state["best"], state["bad_epochs"]
 
     def step(self, value: float) -> bool:
         """Değeri kaydeder; yeni en iyi ise ``True`` döndürür."""
@@ -137,7 +196,7 @@ def train_one_epoch(model: DualStreamForensicNet, loader: DataLoader, criterion:
 
 @torch.no_grad()
 def validate(model: DualStreamForensicNet, dataset: ForgeryDataset, criterion: ForensicLoss,
-             crop_size: int) -> dict[str, float]:
+             crop_size: int, use_amp: bool = False) -> dict[str, float]:
     """
     Validasyon: her belge tam çözünürlükte kayan pencere ile işlenir (uygulamadaki
     çıkarımla birebir aynı). Kayıp, tam görüntü olasılık haritası üzerinden hesaplanır.
@@ -147,7 +206,8 @@ def validate(model: DualStreamForensicNet, dataset: ForgeryDataset, criterion: F
     doc_logits, labels, losses = [], [], []
     for i in range(len(dataset)):
         sample = dataset[i]
-        prob_map, doc_logit = sliding_window_predict(model, sample["image"], tile=crop_size)
+        with torch.autocast(device_type=next(model.parameters()).device.type, enabled=use_amp):
+            prob_map, doc_logit = sliding_window_predict(model, sample["image"], tile=crop_size)
         gt = sample["mask"][0].numpy()
         pixel.update(prob_map, gt)
         doc_logits.append(doc_logit)
@@ -170,6 +230,24 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     use_amp = device.type == "cuda" and not args.no_amp
+    logger.info("Aşama: %s | kaynaklar: %s | lr: %g | run_dir: %s | AMP: %s",
+                args.stage or "-", args.sources, args.lr, run_dir, use_amp)
+
+    resume_ckpt: Optional[dict[str, Any]] = None
+    if args.resume:
+        if not Path(args.resume).is_file():
+            raise FileNotFoundError(f"--resume kontrol noktası bulunamadı: {args.resume}")
+        resume_ckpt = torch.load(args.resume, map_location=device, weights_only=False)
+        if "optimizer_state" not in resume_ckpt:
+            raise ValueError(f"{args.resume} optimizer durumu içermiyor (eski sürüm ya da best.pth); "
+                             "devam için last.pth kullanın veya --init ile ince ayar başlatın.")
+        saved_stage = resume_ckpt.get("stage")
+        if saved_stage != args.stage:
+            raise ValueError(f"{args.resume} '{saved_stage}' aşamasına ait, istenen aşama '{args.stage}'. "
+                             "Yeni aşamaya geçerken --resume yerine --init kullanın.")
+    elif args.init and not Path(args.init).is_file():
+        raise FileNotFoundError(f"Başlangıç kontrol noktası bulunamadı: {args.init}"
+                                + (" (önce --stage stageA çalıştırın)" if args.stage == "stageB" else ""))
 
     # --- 1) Sızıntısız bölümleme -------------------------------------------------
     manifest = build_manifest(args.data_root, args.sources, cache_dir=Path(args.data_root) / "splits")
@@ -181,16 +259,28 @@ def main() -> None:
     logger.info("Train: %d, Val: %d görüntü (test/ood bu betikte kullanılmaz)", len(train_df), len(val_df))
 
     # --- 2) Veri yükleyiciler (dönüşümler dinamik, yalnızca bellekte) -------------
+    if 0 < args.val_samples < len(val_df):
+        # Sabit (seed'li) alt küme: epoch'lar arası metrikler karşılaştırılabilir kalır.
+        val_df = val_df.sample(n=args.val_samples, random_state=args.seed)
+        logger.info("Validasyon her epoch %d görüntülük sabit alt kümeyle yapılacak.", len(val_df))
     train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size), args.max_side)
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, drop_last=True,
-                              num_workers=args.num_workers, pin_memory=device.type == "cuda",
+    sampler = None
+    if 0 < args.samples_per_epoch < len(train_ds):
+        # Her epoch eğitim kümesinden yinelemesiz yeni bir rastgele örneklem çekilir.
+        sampler = RandomSampler(train_ds, replacement=False, num_samples=args.samples_per_epoch)
+        logger.info("Epoch başına %d / %d eğitim görüntüsü örneklenecek.", args.samples_per_epoch, len(train_ds))
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
+                              drop_last=True, num_workers=args.num_workers, pin_memory=device.type == "cuda",
                               persistent_workers=args.num_workers > 0)
 
     # --- 3) Model, kayıp, optimizasyon -------------------------------------------
-    weights = None if args.encoder_weights.lower() == "none" or args.init else args.encoder_weights
+    pretrained = bool(args.init) or resume_ckpt is not None
+    weights = None if args.encoder_weights.lower() == "none" or pretrained else args.encoder_weights
     model = DualStreamForensicNet(encoder_name=args.encoder, encoder_weights=weights).to(device)
-    if args.init:
+    if resume_ckpt is not None:
+        model.load_state_dict(resume_ckpt["model_state"])
+    elif args.init:
         state = torch.load(args.init, map_location=device, weights_only=False)["model_state"]
         model.load_state_dict(state)
         logger.info("Başlangıç ağırlıkları yüklendi: %s", args.init)
@@ -202,25 +292,46 @@ def main() -> None:
     stopper = EarlyStopping(args.patience, mode)
     tracker = MetricLogger(run_dir / "tensorboard")
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
-                              "sources": args.sources, "seed": args.seed}
+                              "sources": args.sources, "seed": args.seed, "stage": args.stage}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
+    start_epoch = 1
+    if resume_ckpt is not None:
+        optimizer.load_state_dict(resume_ckpt["optimizer_state"])
+        scheduler.load_state_dict(resume_ckpt["scheduler_state"])
+        scaler.load_state_dict(resume_ckpt["scaler_state"])
+        stopper.load_state_dict(resume_ckpt["stopper_state"])
+        start_epoch = int(resume_ckpt["epoch"]) + 1
+        logger.info("Devam ediliyor: %s (epoch %d tamamlanmış, en iyi val/%s=%s)",
+                    args.resume, start_epoch - 1, args.monitor, stopper.best)
+        del resume_ckpt
+        if stopper.should_stop:
+            logger.info("Bu eğitim erken durdurma ile zaten bitmiş; yapılacak bir şey yok.")
+            return
+
+    def training_state() -> dict[str, Any]:
+        return {"optimizer_state": optimizer.state_dict(), "scheduler_state": scheduler.state_dict(),
+                "scaler_state": scaler.state_dict(), "stopper_state": stopper.state_dict(), "stage": args.stage}
+
     # --- 4) Eğitim döngüsü ---------------------------------------------------------
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         logger.info("Epoch %d/%d", epoch, args.epochs)
         start = time.time()
         metrics = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
-        metrics.update(validate(model, val_ds, criterion, args.crop_size))
+        metrics.update(validate(model, val_ds, criterion, args.crop_size, use_amp))
         metrics["lr"] = optimizer.param_groups[0]["lr"]
         metrics["time_s"] = time.time() - start
         tracker.log(epoch, metrics)
 
         monitored = metrics[f"val/{args.monitor}"]
         scheduler.step(monitored)
-        save_checkpoint(run_dir / "last.pth", model, config, epoch, metrics)
         if stopper.step(monitored):
             save_checkpoint(run_dir / "best.pth", model, config, epoch, metrics)
+            if args.stage:
+                shutil.copyfile(run_dir / "best.pth", run_dir / f"{args.stage}_best.pth")
             logger.info("Yeni en iyi model (val/%s=%.4f) → %s", args.monitor, monitored, run_dir / "best.pth")
+        # last.pth en son yazılır: kesinti olursa best.pth ile erken durdurma durumu tutarlı kalır.
+        save_checkpoint(run_dir / "last.pth", model, config, epoch, metrics, extra=training_state())
         if stopper.should_stop:
             logger.info("Erken durdurma: %d epoch boyunca iyileşme yok.", args.patience)
             break
