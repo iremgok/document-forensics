@@ -1,0 +1,14 @@
+# Eğitim verisi ve ara çıktılar imaja girmez (imajı GB'larca büyütür)
+data/
+runs/
+checkpoints/run/
+checkpoints/stageC/last.pth
+checkpoints/synthetic/splits.csv
+*.zip
+.git/
+.venv/
+__pycache__/
+*.pyc
+.cache/
+test_document.*
+prediction_result.png

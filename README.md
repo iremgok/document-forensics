@@ -1,4 +1,19 @@
+---
+title: Document Forensics
+emoji: 🔍
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Türkçe finansal belgelerde sahtecilik tespiti ve konumlandırma
+---
+
 # Türkçe Finansal Belgelerde Geleneksel ve Üretken YZ Kaynaklı Sahteciliğin Tespiti ve Konumlandırılması
+
+> **🌐 Canlı demo:** _yakında_ — `https://huggingface.co/spaces/<kullanici>/document-forensics` <!-- Space yayınlanınca bu satırı güncelleyin -->
+>
+> Teknik rapor: [`docs/TECHNICAL_DOCUMENTATION.md`](docs/TECHNICAL_DOCUMENTATION.md)
 
 Banka dekontu, fatura ve fişlerde sahteciliği **piksel düzeyinde konumlandıran** (ısı haritası / maske)
 ve **belge düzeyinde sahtecilik olasılığı** üreten hibrit bir sistem:
@@ -20,7 +35,8 @@ document_forensics/
 │   ├── 1_base_doctamper/        # DocTamper (LMDB'den dışa aktarılmış: <Küme>/images, <Küme>/masks)
 │   ├── 2_finetune_aiforgedoc/   # AIForge-Doc (mevcut "finetune_aiforgedoc" klasörü de otomatik tanınır)
 │   ├── 3_sroie2019/             # SROIE2019 orijinal fişler (yalnızca OOD yanlış-alarm testi)
-│   ├── 4_synthetic_tr_en/       # src/generate_synthetic.py çıktısı
+│   ├── 4_synthetic_tr_en/       # Önceki sentetik sürüm (Stage B)
+│   ├── 5_synthetic_tr_en_v3/    # src/generate_synthetic.py varsayılan çıktısı (~8000 görüntü, Stage C)
 │   └── splits/                  # Önbellek: AIForge-Doc kaynak-grup eşlemesi
 ├── src/
 │   ├── dataset.py               # Manifest, sızıntısız grup ayırıcı, PyTorch Dataset
@@ -28,9 +44,12 @@ document_forensics/
 │   ├── losses.py                # Dice + 2·Focal (+ belge BCE)
 │   ├── metrics.py               # AUC, Piksel-F1/IoU, ECE, Brier, sıcaklık ölçekleme
 │   ├── generate_synthetic.py    # TR/EN dekont-fatura-fiş + sahtecilik + maske üretici
-│   └── ocr_checker.py           # EasyOCR + IBAN Mod-97 + TCKN + KDV kural motoru
+│   ├── ocr_checker.py           # EasyOCR + IBAN Mod-97 + TCKN + KDV kural motoru
+│   ├── dashboard.py             # Model başarımı sekmesi (Plotly)
+│   └── runtime.py               # Dağıtım: ağırlık indirme, EasyOCR/CUDA kontrolleri
 ├── checkpoints/<run>/           # best.pth, last.pth, splits.csv, config.json, calibration.json
-├── train.py · evaluate.py · app.py
+├── train.py · evaluate.py · predict.py · benchmark.py · app.py
+├── Dockerfile · .dockerignore · packages.txt · .streamlit/config.toml
 └── requirements.txt
 ```
 
@@ -45,8 +64,9 @@ pip install -r requirements.txt
 ## Kullanım
 
 ```bash
-# 1) Sentetik Türkçe/İngilizce veri (1000 belge × (1 orijinal + 3 sahte) = 4000 görüntü)
-python -m src.generate_synthetic --num-docs 1000 --variants 3
+# 1) Sentetik Türkçe/İngilizce veri (varsayılan 2000 belge × (1 orijinal + 3 sahte) ≈ 8000 görüntü)
+python -m src.generate_synthetic                       # → data/5_synthetic_tr_en_v3
+python -m src.generate_synthetic --num-images 10000    # hedef görüntü sayısıyla
 
 # 2) Eğitim — yalnızca sentetik veri
 python train.py --sources synthetic --run-dir checkpoints/synthetic --epochs 50 --batch-size 8
@@ -77,6 +97,8 @@ python train.py --stage stageA --samples-per-epoch 20000
 python train.py --stage stageA --resume /kaggle/working/last.pth
 # Stage B — stageA_best.pth'den Türkçe sentetik + SROIE2019 ile ince ayar (lr=1e-5)
 python train.py --stage stageB
+# Stage C — Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi
+python train.py --stage stageC --init /kaggle/input/<ağırlık-veri-seti>/finetuned_multilingual.pth                 --data-root /kaggle/input/<sentetik-v3-veri-seti>
 ```
 
 Stage B'de SROIE2019 eğitime girdiği için OOD yanlış-alarm testi olarak kullanılamaz.
@@ -87,6 +109,73 @@ DocTamper LMDB'yi klasöre aktarmak için (`pip install lmdb`):
 ```bash
 python -c "from src.dataset import export_doctamper_lmdb as e; e('DocTamperV1-TrainingSet', 'data/1_base_doctamper/TrainingSet')"
 ```
+
+---
+
+## Son geliştirmeler: Adım A · B · C
+
+```text
+             Stage A                      Stage B                          Stage C (yeni)
+  DocTamper ───────────► base_doctamper ───────────► finetuned_multilingual ───────────► stageC/best.pth
+  lr 3e-4                .pth             TR/EN sent.  .pth                 yalnız TR/EN     (TR val ile seçilir)
+                                          + SROIE                           sentetik v3
+                                          lr 1e-5                           lr 1e-5, 12 ep.
+  ───────────────────────────────────────────────────────────────────────────────────────────────
+  Tüm aşamalarda eğitim dönüşümü:  kırpma → parlaklık/kontrast → JPEG(Q∈[50,100], p=0.5) → normalize
+```
+
+**Adım A — Türkçe transfer öğrenme (Stage C).**
+* `src/generate_synthetic.py` varsayılan olarak 2000 belge × 4 ≈ **8000 görüntü** üretir
+  (`--num-images 5000…10000`), çıktı `data/5_synthetic_tr_en_v3`'e yazılır ve mevcut veri seti
+  `--overwrite` verilmeden ezilmez. `src/dataset.py` bu klasörü `4_synthetic_tr_en`'den önce arar.
+* `train.py --stage stageC`: başlangıç `checkpoints/finetuned_multilingual.pth`, kaynak yalnızca `synthetic`
+  (DocTamper/SROIE eğitime girmez), AdamW (lr 1e-5, weight decay 1e-4), 12 epoch, çıktı `checkpoints/stageC/`.
+* **TR validasyon kümesi (`val_tr`).** `--val-lang tr` ile model seçimi, erken durdurma ve LR planlaması yalnızca
+  Türkçe sentetik val belgeleri üzerinden yapılır; kullanılan liste `<run_dir>/val_tr.csv` olarak kaydedilir.
+  Gerekçe: Stage B'nin `val/score=0.891`'i 882 DocTamper'a karşı 24 sentetik val görüntüsünden hesaplanmıştı ve
+  Türkçe belgelerdeki başarımı yansıtmıyordu (`results/stageB/`: sentetik testte belge AUC ≈ 0.47).
+* Epoch geçmişi `<run_dir>/history.csv`'ye yazılır; uygulamadaki **Model Başarımı** sekmesi bunu otomatik çizer.
+
+**Adım B — JPEG sıkıştırma dayanıklılığı.** Eğitim dönüşümlerine
+`A.ImageCompression(quality_range=(50, 100), p=0.5)` eklendi (Albumentations 1.x için `quality_lower/upper`
+yedeği var; `--jpeg-aug-p 0` ile kapatılır). WhatsApp/e-posta/ekran görüntüsü yeniden sıkıştırması SRM
+kalıntısını zayıflattığından model bu bozulmayı eğitimde görür. Etkisi `benchmark.py`'nin Q=100→50
+dayanıklılık eğrisiyle ölçülür.
+
+**Adım C — Canlı yayın.** Depo Hugging Face Spaces (Docker SDK) için hazırdır; ayrıntılar aşağıda.
+
+---
+
+## Dağıtım (Hugging Face Spaces / Docker / Streamlit Cloud)
+
+Bu README'nin başındaki YAML bloğu Space ayarlarıdır (`sdk: docker`, `app_port: 7860`).
+
+1. Ağırlıkları bir **HF model deposuna** yükleyin (`finetuned_multilingual.pth`, `base_doctamper.pth`,
+   `calibration.json`). `*.pth` dosyaları `.gitignore` nedeniyle Space deposuna girmez.
+2. Space → *Settings → Variables*: `FORENSICS_WEIGHTS_REPO=<kullanici>/<model-deposu>`
+   (özel depo ise *Secrets*'a `HF_TOKEN`). Alternatif: `FORENSICS_WEIGHTS_URL=<dosyaların temel URL'si>`.
+3. Depoyu Space'e gönderin; `Dockerfile` CPU-only PyTorch kurar ve Streamlit'i 7860'ta başlatır.
+
+```bash
+docker build -t document-forensics .
+docker run -p 7860:7860 -e FORENSICS_WEIGHTS_REPO=<kullanici>/<model-deposu> document-forensics
+```
+
+**Esnek çalışma (fallback):**
+
+| Durum | Davranış |
+|---|---|
+| CUDA yok | Model ve OCR CPU'da çalışır; "OCR için GPU" seçeneği devre dışı |
+| EasyOCR kurulu değil | OCR seçeneği devre dışı, açıklaması gösterilir |
+| EasyOCR modeli indirilemedi / OCR hata verdi | Uyarı gösterilir, görsel analiz sonuçları yine sunulur |
+| Ağırlık yok / indirilemedi | Uyarı gösterilir; model seçimi boş, yalnızca OCR analizi |
+| Ağırlık bozuk / bellek yetersiz | Derin öğrenme adımı uyarıyla atlanır, uygulama çökmez |
+| `results/stageB/` yok | Model Başarımı sekmesi `python benchmark.py` komutunu gösterir |
+
+**Streamlit Community Cloud:** `packages.txt` OpenCV'nin sistem kütüphanelerini kurar. Ancak ücretsiz katmanın
+~1 GB belleği EfficientNet-B4 + EasyOCR için genellikle yetersizdir ve `requirements.txt`'teki `torch` Linux'ta
+CUDA tekerleğini indirir; bu nedenle HF Spaces (16 GB CPU) önerilir. `results/` `.gitignore` içinde olduğundan
+değerlendirme panelinin canlıda görünmesi için `results/stageB/` (~0.5 MB) depoya ayrıca eklenmelidir.
 
 ---
 

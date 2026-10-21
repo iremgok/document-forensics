@@ -46,7 +46,8 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     "doctamper": ("1_base_doctamper",),
     "aiforgedoc": ("2_finetune_aiforgedoc", "finetune_aiforgedoc"),
     "sroie2019": ("3_sroie2019",),
-    "synthetic": ("4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
+    # v3 (Stage C, ~8000 görüntü) varsa önce o kullanılır; yoksa önceki sürüm.
+    "synthetic": ("5_synthetic_tr_en_v3", "4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
 }
 
 #: DocTamper alt küme klasörleri (harf büyüklüğüne duyarsız eşleşir). Resmi dağıtımdaki
@@ -277,6 +278,8 @@ def _manifest_synthetic(root: Path, for_training: bool) -> pd.DataFrame:
         logger.warning("Sentetik metadata bulunamadı: %s", meta_path)
         return pd.DataFrame(columns=MANIFEST_COLUMNS)
     meta = pd.read_csv(meta_path)
+    # ``lang`` (tr/en) Stage C'nin yalnızca Türkçe validasyon kümesi (--val-lang tr) için taşınır;
+    # diğer kaynaklarda bu sütun boştur.
     return pd.DataFrame({
         "image_path": [str(root / p) for p in meta["image"]],
         "mask_path": [str(root / p) for p in meta["mask"]],
@@ -284,6 +287,7 @@ def _manifest_synthetic(root: Path, for_training: bool) -> pd.DataFrame:
         "group_id": "synthetic:" + meta["group_id"].astype(str),
         "source": "synthetic",
         "fixed_split": "" if for_training else "ood",
+        "lang": meta["lang"] if "lang" in meta else None,
     })
 
 
@@ -521,14 +525,34 @@ def verify_no_leakage(df: pd.DataFrame) -> None:
 # Dönüşümler (yalnızca bellekte, dinamik)
 # ---------------------------------------------------------------------------
 
-def build_transforms(train: bool, crop_size: int = 512) -> Callable:
-    """Albumentations dönüşüm hattı."""
+def jpeg_compression(quality_low: int = 50, quality_high: int = 100, p: float = 0.5) -> Any:
+    """Rastgele kaliteli JPEG yeniden sıkıştırma (Albumentations 1.x ve 2.x uyumlu).
+
+    WhatsApp/e-posta/ekran görüntüsü aktarımlarında belgeler Q≈50-95 aralığında yeniden
+    sıkıştırılır; SRM gürültü kalıntısı bu işlemle zayıflar. Eğitimde aynı bozulmayı görmek,
+    modelin yalnızca sıkıştırılmamış izlere dayanmasını engeller. Maske değişmez.
+    """
+    import albumentations as A
+
+    try:  # Albumentations ≥ 1.4: quality_range
+        return A.ImageCompression(quality_range=(quality_low, quality_high), p=p)
+    except TypeError:  # Eski sürümler
+        return A.ImageCompression(quality_lower=quality_low, quality_upper=quality_high, p=p)
+
+
+def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5) -> Callable:
+    """Albumentations dönüşüm hattı.
+
+    Eğitimde ``jpeg_p`` olasılıkla Q ∈ [50, 100] JPEG sıkıştırması uygulanır (0 = kapalı).
+    Validasyon/test dönüşümleri değişmez.
+    """
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
 
     tail = [A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD), ToTensorV2()]
     if not train:
         return A.Compose(tail)
+    jpeg = [jpeg_compression(50, 100, jpeg_p)] if jpeg_p > 0 else []
     return A.Compose([
         A.PadIfNeeded(min_height=crop_size, min_width=crop_size, border_mode=cv2.BORDER_REFLECT_101),
         A.OneOf([
@@ -536,6 +560,7 @@ def build_transforms(train: bool, crop_size: int = 512) -> Callable:
             A.RandomCrop(height=crop_size, width=crop_size, p=0.3),
         ], p=1.0),
         A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
+        *jpeg,
         *tail,
     ])
 

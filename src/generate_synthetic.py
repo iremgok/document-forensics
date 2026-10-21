@@ -28,14 +28,22 @@ Sahtecilik işlemleri (maske: 255 = sahte piksel)
                       yüksek-frekans gürültüsünü taklit eder).
 
 Kullanım:
-    python -m src.generate_synthetic --out data/4_synthetic_tr_en --num-docs 1000 --variants 3
+    python -m src.generate_synthetic                          # 2000 belge × 4 = ~8000 görüntü (Stage C)
+    python -m src.generate_synthetic --num-images 10000       # hedef görüntü sayısından belge sayısı
+    python -m src.generate_synthetic --out data/4_synthetic_tr_en --num-docs 1000 --variants 3 --overwrite
+
+Varsayılan çıktı ``data/5_synthetic_tr_en_v3`` klasörüdür; ``src/dataset.py`` bu klasörü
+``4_synthetic_tr_en``'den önce arar. Hedef klasörde ``metadata.csv`` varsa üretim ``--overwrite``
+verilmeden başlamaz (önceki veri setinin yanlışlıkla ezilmesini önler).
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import math
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -676,25 +684,39 @@ def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, se
         print("UYARI: TTF font bulunamadı, Pillow varsayılan fontu kullanılacak (çeşitlilik düşük).")
     rng = random.Random(seed)
     meta_path = out_dir / "metadata.csv"
+    start = time.time()
     with open(meta_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=["image", "mask", "group_id", "label", "tamper_type", "lang", "doc_type"])
         writer.writeheader()
         for i in range(num_docs):
             for row in generate_group(f"syn{i:06d}", rng, fonts, out_dir, n_variants, tr_ratio):
                 writer.writerow(row)
-            if (i + 1) % 50 == 0:
-                print(f"  {i + 1}/{num_docs} belge üretildi")
+            if (i + 1) % 100 == 0 or i + 1 == num_docs:
+                elapsed = time.time() - start
+                eta = elapsed / (i + 1) * (num_docs - i - 1) / 60
+                print(f"  {i + 1}/{num_docs} belge üretildi ({elapsed / 60:.1f} dk, kalan ~{eta:.1f} dk)", flush=True)
     return meta_path
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Türkçe/İngilizce sentetik sahte belge üretici")
-    parser.add_argument("--out", default="data/4_synthetic_tr_en")
-    parser.add_argument("--num-docs", type=int, default=1000, help="Şablon örneği (grup) sayısı")
+    parser.add_argument("--out", default="data/5_synthetic_tr_en_v3")
+    parser.add_argument("--num-docs", type=int, default=2000,
+                        help="Şablon örneği (grup) sayısı; her grup 1 orijinal + --variants sahte görüntüdür "
+                             "(varsayılan 2000 × 4 ≈ 8000 görüntü)")
+    parser.add_argument("--num-images", type=int, default=None,
+                        help="Hedef toplam görüntü sayısı (ör. 5000-10000); verilirse --num-docs bundan hesaplanır")
     parser.add_argument("--variants", type=int, default=3, help="Grup başına sahte varyant sayısı")
     parser.add_argument("--tr-ratio", type=float, default=0.6, help="Türkçe belge oranı")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--overwrite", action="store_true", help="Hedef klasördeki mevcut veri setinin üzerine yaz")
     args = parser.parse_args()
+    if args.num_images:
+        args.num_docs = math.ceil(args.num_images / (args.variants + 1))
+    if (Path(args.out) / "metadata.csv").exists() and not args.overwrite:
+        parser.error(f"{args.out} zaten bir veri seti içeriyor; üzerine yazmak için --overwrite verin "
+                     "ya da farklı bir --out seçin.")
+    print(f"{args.num_docs} belge × {args.variants + 1} ≈ {args.num_docs * (args.variants + 1)} görüntü → {args.out}")
     path = generate_dataset(args.out, args.num_docs, args.variants, args.seed, args.tr_ratio)
     print(f"Tamamlandı: {path}")
 

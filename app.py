@@ -40,11 +40,13 @@ import streamlit as st
 
 from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, load_calibration, make_overlay, predict
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
+from src.runtime import cuda_available, easyocr_available, ensure_weights
 
 CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
 PRESET_CHECKPOINTS = {
     "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual (varsayılan)",
     "checkpoints/base_doctamper.pth": "Stage A — base_doctamper",
+    "checkpoints/stageC/best.pth": "Stage C — Türkçe ince ayar (TR val ile seçilmiş)",
 }
 MODES = {"sliding": "Kayan Pencere (varsayılan)", "resize": "512x512 Hızlı Önizleme"}
 PDF_DPI = 200
@@ -54,8 +56,14 @@ PDF_DPI = 200
 # Yükleme yardımcıları
 # ---------------------------------------------------------------------------
 
+@st.cache_resource(show_spinner="Model ağırlıkları kontrol ediliyor / indiriliyor...")
+def fetch_weights() -> dict[str, str]:
+    """Dağıtım ortamında eksik ağırlıkları bir kez indirir (bkz. ``src/runtime.py``)."""
+    return ensure_weights()
+
+
 def find_checkpoints() -> list[str]:
-    """Önce Stage B / Stage A ağırlıkları, ardından ``checkpoints/`` ve ``runs/`` altındaki
+    """Önce Stage B / Stage A / Stage C ağırlıkları, ardından ``checkpoints/`` ve ``runs/`` altındaki
     diğer boş olmayan .pth dosyaları (en yeni önce)."""
     presets = [p for p in PRESET_CHECKPOINTS if Path(p).is_file()]
     others = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
@@ -69,7 +77,7 @@ def load_detector(path: str) -> tuple[torch.nn.Module, dict, str]:
     """Modeli, yapılandırmasını ve kullanılan cihazı yükler."""
     from src.models import load_model
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if cuda_available() else "cpu"
     model, config = load_model(path, device)
     return model, config, device
 
@@ -166,6 +174,9 @@ def hybrid_score(dl_score: Optional[float], report: Optional[ContentReport]) -> 
 def sidebar() -> dict:
     with st.sidebar:
         st.header("⚙️ Ayarlar")
+        failed = {k: v for k, v in fetch_weights().items() if v.startswith("indirilemedi")}
+        if failed:
+            st.warning("Bazı ağırlıklar indirilemedi:\n\n" + "\n".join(f"- `{k}`: {v}" for k, v in failed.items()))
         checkpoints = find_checkpoints()
         ckpt = st.selectbox("Model", checkpoints, format_func=lambda p: PRESET_CHECKPOINTS.get(p, p)) \
             if checkpoints else None
@@ -189,26 +200,36 @@ def sidebar() -> dict:
                               help="Bu olasılığın üzerindeki pikseller ve belgeler sahte kabul edilir.")
 
         st.subheader("📑 İçerik analizi")
-        use_ocr = st.toggle("OCR + kural motoru", value=False,
-                            help="IBAN, TCKN ve Matrah/KDV/Toplam tutarlılığını denetler (yavaş).")
-        ocr_gpu = st.toggle("OCR için GPU", value=torch.cuda.is_available(),
-                            disabled=not torch.cuda.is_available() or not use_ocr)
+        ocr_ok, gpu_ok = easyocr_available(), cuda_available()
+        use_ocr = st.toggle("OCR + kural motoru", value=False, disabled=not ocr_ok,
+                            help="IBAN, TCKN ve Matrah/KDV/Toplam tutarlılığını denetler (yavaş)."
+                            if ocr_ok else "EasyOCR kurulu değil (`pip install easyocr`); OCR devre dışı.")
+        ocr_gpu = st.toggle("OCR için GPU", value=gpu_ok, disabled=not gpu_ok or not use_ocr,
+                            help=None if gpu_ok else "CUDA bulunamadı; OCR CPU'da çalışır.")
     return {"ckpt": ckpt, "mode": mode, "temperature": float(temperature), "threshold": float(threshold),
             "use_ocr": use_ocr, "ocr_gpu": ocr_gpu}
 
 
 def run_analysis(image: np.ndarray, settings: dict) -> dict:
-    result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": []}
+    result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": [],
+                    "errors": []}
     if settings["ckpt"]:
-        model, config, device = load_detector(settings["ckpt"])
-        with st.spinner("Derin öğrenme analizi..."):
-            result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, settings["temperature"],
-                                                                 device, settings["mode"])
-        result["doc_prob"] = fuse_doc_score(result["raw_doc_prob"], float(result["prob_map"].max()))
+        try:
+            model, config, device = load_detector(settings["ckpt"])
+            with st.spinner("Derin öğrenme analizi..."):
+                result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, settings["temperature"],
+                                                                     device, settings["mode"])
+            result["doc_prob"] = fuse_doc_score(result["raw_doc_prob"], float(result["prob_map"].max()))
+        except Exception as exc:  # Bozuk/eksik ağırlık, bellek yetersizliği: OCR yine de çalışabilsin
+            result["prob_map"] = None
+            result["errors"].append(f"Derin öğrenme analizi başarısız: {exc.__class__.__name__}: {exc}")
     if settings["use_ocr"]:
-        with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
-            result["lines"] = run_ocr(image, gpu=settings["ocr_gpu"])
-            result["report"] = check_document_text(result["lines"])
+        try:
+            with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
+                result["lines"] = run_ocr(image, gpu=settings["ocr_gpu"] and cuda_available())
+                result["report"] = check_document_text(result["lines"])
+        except Exception as exc:  # EasyOCR modeli indirilemedi / kurulu değil
+            result["errors"].append(f"OCR çalıştırılamadı: {exc.__class__.__name__}: {exc}")
     return result
 
 
@@ -307,6 +328,8 @@ def analysis_tab(settings: dict) -> None:
         return
 
     result = stored[1]
+    for message in result.get("errors", []):
+        st.warning(message)
     show_visual(image, result, settings["threshold"])
     show_content(image, result)
 

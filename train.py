@@ -17,6 +17,15 @@ Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
     ``<run_dir>/stageA_best.pth`` olarak saklanır.
   * ``stageB``: ``stageA_best.pth`` yüklenir; Türkçe sentetik + SROIE2019 üzerinde
     lr=1e-5 ile ince ayar. SROIE2019 bu aşamada eğitime girdiği için OOD değildir.
+  * ``stageC``: Türkçe transfer öğrenme. ``checkpoints/finetuned_multilingual.pth`` (Stage B)
+    yüklenir; **yalnızca** TR/EN sentetik belgelerle (DocTamper ve SROIE hariç) lr=1e-5,
+    AdamW (weight decay 1e-4), 12 epoch ince ayar. Model seçimi ve erken durdurma yalnızca
+    Türkçe sentetik belgelerden oluşan validasyon kümesiyle (``--val-lang tr``) yapılır;
+    böylece DocTamper ağırlıklı genel val skoru seçimi yönlendirmez. Düşük lr, Stage A/B'de
+    öğrenilen DocTamper özniteliklerinin unutulmasını sınırlar.
+
+Tüm aşamalarda eğitim görüntüleri ``--jpeg-aug-p`` (varsayılan 0.5) olasılıkla Q ∈ [50, 100]
+JPEG sıkıştırmasından geçer (``src/dataset.py::build_transforms``).
 
 Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
 
@@ -27,6 +36,8 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageA --data-root /kaggle/input/.../doctamper --doctamper-max 30000  # LMDB doğrudan
     python train.py --stage stageA --resume /kaggle/working/last.pth   # kesintiden sonra
     python train.py --stage stageB
+    python train.py --stage stageC                       # Stage B → TR sentetik ince ayar
+    python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual.pth
 """
 
 from __future__ import annotations
@@ -42,6 +53,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 
@@ -60,8 +72,11 @@ KAGGLE_WORKING = Path("/kaggle/working")
 STAGE_PRESETS: dict[str, dict[str, Any]] = {
     "stageA": {"sources": ["doctamper"], "lr": 3e-4},
     "stageB": {"sources": ["synthetic", "sroie2019"], "lr": 1e-5, "init": "stageA_best.pth"},
+    "stageC": {"sources": ["synthetic"], "lr": 1e-5, "weight_decay": 1e-4, "epochs": 12,
+               "init": "checkpoints/finetuned_multilingual.pth", "val_lang": "tr", "run_dir": "checkpoints/stageC"},
 }
-DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None}
+DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None, "epochs": 50,
+                            "weight_decay": 1e-4, "val_lang": None}
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,7 +84,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-root", default="data")
     p.add_argument("--stage", default=None, choices=sorted(STAGE_PRESETS),
                    help="Aşamalı eğitim ön ayarı: stageA = DocTamper temel eğitim, "
-                        "stageB = stageA_best.pth'den sentetik + SROIE ince ayar (lr=1e-5)")
+                        "stageB = stageA_best.pth'den sentetik + SROIE ince ayar (lr=1e-5), "
+                        "stageC = Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi")
     p.add_argument("--sources", nargs="+", default=None,
                    choices=["synthetic", "doctamper", "aiforgedoc", "sroie2019"],
                    help="Eğitim/val'de kullanılacak kaynaklar; diğerleri yalnızca test/OOD olur. "
@@ -85,9 +101,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--crop-size", type=int, default=512)
     p.add_argument("--max-side", type=int, default=1600, help="Uzun kenar sınırı (yalnızca küçültme)")
     p.add_argument("--batch-size", type=int, default=8)
-    p.add_argument("--epochs", type=int, default=50)
-    p.add_argument("--lr", type=float, default=None, help="Varsayılan: 3e-4 (stageB: 1e-5)")
-    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--epochs", type=int, default=None, help="Varsayılan: 50 (stageC: 12)")
+    p.add_argument("--lr", type=float, default=None, help="Varsayılan: 3e-4 (stageB/stageC: 1e-5)")
+    p.add_argument("--weight-decay", type=float, default=None, help="AdamW weight decay (varsayılan 1e-4)")
+    p.add_argument("--val-lang", default=None, choices=["tr", "en"],
+                   help="Validasyonu (model seçimi + erken durdurma) yalnızca bu dildeki sentetik belgelerle yap "
+                        "(stageC: tr)")
+    p.add_argument("--jpeg-aug-p", type=float, default=0.5,
+                   help="Eğitimde Q∈[50,100] JPEG sıkıştırma artırmasının olasılığı (0 = kapalı)")
     p.add_argument("--samples-per-epoch", type=int, default=20000,
                    help="Epoch başına rastgele örneklenen eğitim görüntüsü (her epoch yeni örneklem); "
                         "0 = tüm eğitim kümesi")
@@ -119,7 +140,7 @@ def apply_stage_presets(args: argparse.Namespace) -> argparse.Namespace:
         if getattr(args, key) is None:
             setattr(args, key, preset.get(key, default))
     if args.run_dir is None:
-        args.run_dir = str(KAGGLE_WORKING if KAGGLE_WORKING.is_dir() else Path("checkpoints/run"))
+        args.run_dir = str(KAGGLE_WORKING if KAGGLE_WORKING.is_dir() else Path(preset.get("run_dir", "checkpoints/run")))
     if args.init and not Path(args.init).is_absolute() and not Path(args.init).exists():
         args.init = str(Path(args.run_dir) / args.init)
     if args.resume and Path(args.resume).is_dir():
@@ -303,7 +324,8 @@ def main() -> None:
                              "Yeni aşamaya geçerken --resume yerine --init kullanın.")
     elif args.init and not Path(args.init).is_file():
         raise FileNotFoundError(f"Başlangıç kontrol noktası bulunamadı: {args.init}"
-                                + (" (önce --stage stageA çalıştırın)" if args.stage == "stageB" else ""))
+                                + (" (önce --stage stageA çalıştırın)" if args.stage == "stageB" else "")
+                                + (" (Stage B ağırlığını --init ile verin)" if args.stage == "stageC" else ""))
 
     # --- 1) Sızıntısız bölümleme -------------------------------------------------
     # /kaggle/input salt okunurdur: önbellek yazılamıyorsa run_dir altına yazılır.
@@ -315,6 +337,15 @@ def main() -> None:
     splits = assign_splits(manifest, seed=args.seed)
     splits.to_csv(run_dir / "splits.csv", index=False)
     train_df, val_df = splits[splits["split"] == "train"], splits[splits["split"] == "val"]
+    if args.val_lang:
+        # Stage C: model seçimi yalnızca hedef dildeki sentetik val belgeleriyle (val_tr).
+        # Bölümleme değişmez; diğer val satırları yalnızca seçime katılmaz (eğitime de girmez).
+        lang = val_df["lang"] if "lang" in val_df else pd.Series(index=val_df.index, dtype=object)
+        keep = (val_df["source"] == "synthetic") & (lang == args.val_lang)
+        logger.info("Validasyon yalnızca '%s' dilindeki sentetik belgelerle: %d / %d görüntü (val_%s).",
+                    args.val_lang, int(keep.sum()), len(val_df), args.val_lang)
+        val_df = val_df[keep]
+        val_df.to_csv(run_dir / f"val_{args.val_lang}.csv", index=False)
     if train_df.empty or val_df.empty:
         raise RuntimeError("Train veya val kümesi boş. Önce veri üretin: python -m src.generate_synthetic")
     logger.info("Train: %d, Val: %d görüntü (test/ood bu betikte kullanılmaz)", len(train_df), len(val_df))
@@ -324,7 +355,7 @@ def main() -> None:
         # Sabit (seed'li) alt küme: epoch'lar arası metrikler karşılaştırılabilir kalır.
         val_df = val_df.sample(n=args.val_samples, random_state=args.seed)
         logger.info("Validasyon her epoch %d görüntülük sabit alt kümeyle yapılacak.", len(val_df))
-    train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size), args.max_side)
+    train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size, args.jpeg_aug_p), args.max_side)
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
     sampler = None
     if 0 < args.samples_per_epoch < len(train_ds):
@@ -366,7 +397,8 @@ def main() -> None:
     stopper = EarlyStopping(args.patience, mode)
     tracker = MetricLogger(run_dir / "tensorboard", history_path=run_dir / "history.csv")
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
-                              "sources": args.sources, "seed": args.seed, "stage": args.stage}
+                              "sources": args.sources, "seed": args.seed, "stage": args.stage,
+                              "val_lang": args.val_lang, "jpeg_aug_p": args.jpeg_aug_p}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     start_epoch = 1

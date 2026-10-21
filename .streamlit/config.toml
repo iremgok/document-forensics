@@ -1,0 +1,5 @@
+[server]
+maxUploadSize = 25          # MB — taranmış PDF/fotoğraf için yeterli; küçük bellekli bulut ortamlarında taşmayı önler
+
+[browser]
+gatherUsageStats = false
