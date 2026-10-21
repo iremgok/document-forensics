@@ -10,6 +10,8 @@ pillow>=10.1          # ImageFont.load_default(size=...) için >=10.1 gerekli
 numpy>=1.24
 pandas>=2.0
 matplotlib>=3.7       # predict.py figürü için
+plotly>=5.18          # app.py model başarımı sekmesi
+scikit-learn>=1.3     # ROC / PR eğrileri (src/dashboard.py)
 
 # --- OCR ---
 easyocr>=1.7

@@ -126,12 +126,24 @@ def to_tensor(image: np.ndarray) -> torch.Tensor:
 # Çıkarım
 # ---------------------------------------------------------------------------
 
-@torch.no_grad()
 def predict(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, Any], temperature: float,
             device: str, mode: str = "sliding") -> tuple[np.ndarray, float]:
     """
     Returns:
         (orijinal boyutta kalibre olasılık haritası float32 [0,1], kalibre belge olasılığı)
+    """
+    prob_map, doc_logit = predict_raw(model, image, config, temperature, device, mode)
+    return prob_map, float(torch.sigmoid(torch.tensor(doc_logit / temperature)))
+
+
+@torch.no_grad()
+def predict_raw(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, Any], temperature: float,
+                device: str, mode: str = "sliding") -> tuple[np.ndarray, float]:
+    """``predict`` ile aynı; belge skorunu kalibre edilmemiş ham logit olarak döndürür
+    (değerlendirmede farklı sıcaklıkların karşılaştırılabilmesi için).
+
+    Returns:
+        (orijinal boyutta kalibre olasılık haritası float32 [0,1], ham belge logit'i)
     """
     if mode == "sliding":
         # app.py.run_detector ile aynı: eğitimdeki uzun kenar sınırı, ardından ölçeklemesiz tarama
@@ -143,10 +155,9 @@ def predict(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, A
         mask_logits, cls_logit = model(to_tensor(resized).unsqueeze(0).to(device))
         prob = torch.sigmoid(mask_logits[0, 0].float() / temperature).cpu().numpy()
         doc_logit = float(cls_logit[0])
-    doc_prob = float(torch.sigmoid(torch.tensor(doc_logit / temperature)))
     h, w = image.shape[:2]
     mask_resized = cv2.resize(prob, (w, h), interpolation=cv2.INTER_LINEAR)
-    return np.clip(mask_resized, 0.0, 1.0).astype(np.float32), doc_prob
+    return np.clip(mask_resized, 0.0, 1.0).astype(np.float32), float(doc_logit)
 
 
 def fuse_doc_score(doc_prob: float, max_pixel_prob: float) -> float:

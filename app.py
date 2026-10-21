@@ -112,6 +112,21 @@ def overlay_with_contours(image: np.ndarray, prob_map: np.ndarray, threshold: fl
     return out
 
 
+def is_forged(doc_prob: float, max_pixel_prob: float, threshold: float) -> bool:
+    """
+    Sahtecilik kararı — iki koşuldan biri yeterlidir:
+
+    * **Hibrit:** belge skoru eşiği geçer VE piksel haritasında en az hafif bir iz vardır
+      (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen temizken
+      yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
+    * **Piksel:** maks. piksel olasılığı doğrudan eşiği geçer (belge skoru düşük kalsa bile);
+      belirgin yerel tahrifat izleri kaçırılmaz.
+    """
+    hybrid_condition = doc_prob >= threshold and max_pixel_prob >= CLEAN_PIXEL_LIMIT
+    pixel_condition = max_pixel_prob >= threshold
+    return hybrid_condition or pixel_condition
+
+
 def draw_findings(image: np.ndarray, report: ContentReport) -> np.ndarray:
     """Başarısız kuralların satır kutularını turuncu, başarılı olanları yeşil çerçeveler."""
     out = image.copy()
@@ -222,10 +237,12 @@ def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
     m2.metric("Maksimum Piksel Olasılığı", f"{max_pixel:.3f}")
     m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
 
-    if doc_prob >= threshold or max_pixel >= threshold:
+    if is_forged(doc_prob, max_pixel, threshold):
         st.error("⚠️ Belgede manipülasyon/sahtecilik tespiti yapıldı!")
     else:
         st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")
+        if doc_prob >= threshold and max_pixel < CLEAN_PIXEL_LIMIT:
+            st.info("ℹ️ Belge skoru sınırda/yüksek olsa da piksel seviyesinde sahte bölge izine rastlanmadı.")
 
 
 def show_content(image: np.ndarray, result: dict) -> None:
@@ -255,14 +272,7 @@ def show_content(image: np.ndarray, result: dict) -> None:
                                    for l in result["lines"]]), use_container_width=True)
 
 
-def main() -> None:
-    st.set_page_config(page_title="Document Forensics", page_icon="🔍", layout="wide")
-    st.title("🔍 Document Forensics - Sahtecilik ve Manipülasyon Tespit Sistemi")
-    st.caption("Dekont · Fatura · Fiş — RGB + SRM gürültü akışlı derin öğrenme modeli, "
-               "kalibre olasılıklar ve opsiyonel OCR içerik tutarlılığı")
-
-    settings = sidebar()
-
+def analysis_tab(settings: dict) -> None:
     upload = st.file_uploader("Belge yükleyin (JPG, JPEG, PNG, PDF)", type=["jpg", "jpeg", "png", "pdf"])
     if upload is None:
         st.info("Analize başlamak için bir dekont, fatura veya fiş yükleyin.")
@@ -299,6 +309,23 @@ def main() -> None:
     result = stored[1]
     show_visual(image, result, settings["threshold"])
     show_content(image, result)
+
+
+
+def main() -> None:
+    st.set_page_config(page_title="Document Forensics", page_icon="🔍", layout="wide")
+    st.title("🔍 Document Forensics - Sahtecilik ve Manipülasyon Tespit Sistemi")
+    st.caption("Dekont · Fatura · Fiş — RGB + SRM gürültü akışlı derin öğrenme modeli, "
+               "kalibre olasılıklar ve opsiyonel OCR içerik tutarlılığı")
+
+    settings = sidebar()
+    tab_analysis, tab_metrics = st.tabs(["🔎 Belge Analizi", "📊 Model Başarımı ve Metrik Analizi"])
+    with tab_analysis:
+        analysis_tab(settings)
+    with tab_metrics:
+        from src.dashboard import render_dashboard
+
+        render_dashboard(settings["threshold"], settings["temperature"], tuple(PRESET_CHECKPOINTS))
 
 
 if __name__ == "__main__":

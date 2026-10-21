@@ -165,9 +165,15 @@ class EarlyStopping:
 
 
 class MetricLogger:
-    """Konsol + opsiyonel TensorBoard günlükleyici."""
+    """Konsol + ``history.csv`` + opsiyonel TensorBoard günlükleyici.
 
-    def __init__(self, log_dir: Path) -> None:
+    ``history.csv`` (her epoch bir satır) ``app.py``'deki model başarımı sekmesinde
+    eğitim/validasyon eğrilerini çizmek için kullanılır. Eğitime devam edildiğinde
+    (``--resume``) mevcut dosyanın sonuna eklenir.
+    """
+
+    def __init__(self, log_dir: Path, history_path: Optional[Path] = None) -> None:
+        self.history_path = history_path
         try:
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(str(log_dir))
@@ -177,6 +183,12 @@ class MetricLogger:
 
     def log(self, epoch: int, metrics: dict[str, float]) -> None:
         logger.info("Epoch %3d | %s", epoch, " | ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
+        if self.history_path is not None:
+            import pandas as pd
+
+            row = pd.DataFrame([{"epoch": epoch, **metrics}])
+            write_header = not self.history_path.exists()
+            row.to_csv(self.history_path, mode="a", header=write_header, index=False)
         if self.writer:
             for key, value in metrics.items():
                 self.writer.add_scalar(key, value, epoch)
@@ -352,7 +364,7 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=mode, factor=0.5, patience=3)
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     stopper = EarlyStopping(args.patience, mode)
-    tracker = MetricLogger(run_dir / "tensorboard")
+    tracker = MetricLogger(run_dir / "tensorboard", history_path=run_dir / "history.csv")
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
                               "sources": args.sources, "seed": args.seed, "stage": args.stage}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
