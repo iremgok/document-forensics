@@ -25,6 +25,7 @@ Mimari
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Optional
 
@@ -184,8 +185,8 @@ def _tile_starts(length: int, tile: int, stride: int) -> list[int]:
 
 @torch.no_grad()
 def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, tile: int = 512,
-                           overlap: float = 0.25, batch_size: int = 4, temperature: float = 1.0
-                           ) -> tuple[np.ndarray, float]:
+                           overlap: float = 0.25, batch_size: int = 4, temperature: float = 1.0,
+                           top_k_ratio: float = 0.10) -> tuple[np.ndarray, float]:
     """
     Tam çözünürlüklü belgeyi örtüşen pencerelerle işler.
 
@@ -193,14 +194,19 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
     boyutlandırma yapmadan yapılır; böylece SRM gürültü istatistiği korunur.
 
     * Piksel haritası: örtüşen bölgelerde olasılıkların ortalaması.
-    * Belge logit'i: pencerelerin ``cls_logit`` değerlerinin **maksimumu**. Eğitimde
-      yama etiketi "yamada sahte piksel var mı?" olduğu için, belgenin herhangi bir
-      penceresinde sahtecilik varsa belge sahtedir (çoklu örnek öğrenme mantığı).
+    * Belge logit'i: en yüksek ``cls_logit``'e sahip pencerelerin ``top_k_ratio``
+      kadarının (en az 1) **ortalaması** (Top-K Average). Eğitimde yama etiketi
+      "yamada sahte piksel var mı?" olduğu için belge skoru en şüpheli pencerelerden
+      gelir (çoklu örnek öğrenme mantığı); tek bir pencerenin aykırı logit'i yerine
+      en şüpheli %10'un ortalaması alınarak gerçek belgelerdeki yanlış alarmlar azaltılır.
+      ``k = max(1, ceil(top_k_ratio · pencere_sayısı))``; tek pencereli (≤ tile) belgede
+      ve ``top_k_ratio → 0`` için eski maksimum davranışına eşittir.
 
     Args:
         image: (3, H, W) normalize tensör.
         temperature: Piksel logit'lerine sigmoid'den önce uygulanan sıcaklık (``logit / T``).
             ``doc_logit`` ham döner; kalibrasyonu çağıran taraf uygular.
+        top_k_ratio: Belge logit'ine ortalaması alınan en yüksek pencere oranı (0, 1].
     Returns:
         (prob_map (H, W) float32 [0,1], doc_logit float)
     """
@@ -214,7 +220,7 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
 
     prob_sum = torch.zeros((ph, pw), device=device)
     count = torch.zeros((ph, pw), device=device)
-    doc_logit = -float("inf")
+    window_logits = []
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i + batch_size]
         batch = torch.stack([padded[:, y:y + tile, x:x + tile] for y, x in chunk]).to(device)
@@ -223,6 +229,9 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
         for (y, x), p in zip(chunk, probs):
             prob_sum[y:y + tile, x:x + tile] += p
             count[y:y + tile, x:x + tile] += 1
-        doc_logit = max(doc_logit, float(cls_logit.max()))
+        window_logits.append(cls_logit.float())
+    window_logits = torch.cat(window_logits)
+    k = max(1, math.ceil(top_k_ratio * window_logits.numel()))
+    doc_logit = float(window_logits.topk(k).values.mean())
     prob_map = (prob_sum / count.clamp_min(1))[:h, :w]
     return prob_map.cpu().numpy().astype(np.float32), doc_logit
