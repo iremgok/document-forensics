@@ -184,7 +184,8 @@ def _tile_starts(length: int, tile: int, stride: int) -> list[int]:
 
 @torch.no_grad()
 def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, tile: int = 512,
-                           overlap: float = 0.25, batch_size: int = 4) -> tuple[np.ndarray, float]:
+                           overlap: float = 0.25, batch_size: int = 4, temperature: float = 1.0
+                           ) -> tuple[np.ndarray, float]:
     """
     Tam çözünürlüklü belgeyi örtüşen pencerelerle işler.
 
@@ -198,6 +199,8 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
 
     Args:
         image: (3, H, W) normalize tensör.
+        temperature: Piksel logit'lerine sigmoid'den önce uygulanan sıcaklık (``logit / T``).
+            ``doc_logit`` ham döner; kalibrasyonu çağıran taraf uygular.
     Returns:
         (prob_map (H, W) float32 [0,1], doc_logit float)
     """
@@ -216,7 +219,7 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
         chunk = coords[i:i + batch_size]
         batch = torch.stack([padded[:, y:y + tile, x:x + tile] for y, x in chunk]).to(device)
         mask_logits, cls_logit = model(batch)
-        probs = torch.sigmoid(mask_logits[:, 0].float())
+        probs = torch.sigmoid(mask_logits[:, 0].float() / temperature)
         for (y, x), p in zip(chunk, probs):
             prob_sum[y:y + tile, x:x + tile] += p
             count[y:y + tile, x:x + tile] += 1

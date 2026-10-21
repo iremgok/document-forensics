@@ -1,15 +1,16 @@
 """
-Streamlit web arayüzü: Türkçe finansal belgelerde hibrit sahtecilik analizi.
+Streamlit web arayüzü: Türkçe finansal belgelerde sahtecilik ve manipülasyon tespiti.
 
 Çalıştırma:
     streamlit run app.py
 
-Sayfa üç analiz üretir:
-  1. **Görsel analiz** — Derin öğrenme modelinin piksel olasılık haritası,
-     orijinal belgenin üzerine kırmızı ısı haritası olarak bindirilir.
-  2. **İçerik analizi** — EasyOCR çıktısı ve kural motoru raporu
-     (IBAN Mod-97, TCKN, Matrah + KDV = Genel Toplam, KDV oranı).
-  3. **Nihai karar** — iki kanıt kaynağını birleştiren hibrit güven skoru.
+Çıkarım altyapısı ``predict.py`` ile ortaktır (aynı ön işlem, kayan pencere / 512x512
+modları ve ``checkpoints/calibration.json`` sıcaklık + eşik kalibrasyonu). Sayfa:
+  1. **Görsel analiz** — orijinal belge | jet olasılık haritası | %60/%40 ısı haritası
+     bindirmesi (eşik üstü bölgeler beyaz konturla).
+  2. **Özet** — belge olasılığı, maksimum piksel olasılığı, eşik üstü alan ve karar kutusu.
+  3. **İçerik analizi (opsiyonel)** — EasyOCR + kural motoru (IBAN Mod-97, TCKN,
+     Matrah + KDV = Genel Toplam, KDV oranı) ve hibrit güven skoru.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ warnings.filterwarnings("ignore", message=r".*torch\.classes.*")
 warnings.filterwarnings("ignore", message=r".*Tried to instantiate class '__path__\._path'.*")
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 
-import json
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -37,10 +38,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.dataset import IMAGENET_MEAN, IMAGENET_STD, limit_long_side
+from predict import load_calibration, make_overlay, predict
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 
 CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
+PRESET_CHECKPOINTS = {
+    "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual (varsayılan)",
+    "checkpoints/base_doctamper.pth": "Stage A — base_doctamper",
+}
+MODES = {"sliding": "Kayan Pencere (varsayılan)", "resize": "512x512 Hızlı Önizleme"}
 PDF_DPI = 200
 
 
@@ -49,21 +55,23 @@ PDF_DPI = 200
 # ---------------------------------------------------------------------------
 
 def find_checkpoints() -> list[str]:
-    """``checkpoints/`` ve ``runs/`` altındaki boş olmayan .pth dosyalarını listeler (en yeni önce)."""
-    paths = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
-    return [str(p) for p in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)]
+    """Önce Stage B / Stage A ağırlıkları, ardından ``checkpoints/`` ve ``runs/`` altındaki
+    diğer boş olmayan .pth dosyaları (en yeni önce)."""
+    presets = [p for p in PRESET_CHECKPOINTS if Path(p).is_file()]
+    others = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
+    others = [p.as_posix() for p in sorted(others, key=lambda p: p.stat().st_mtime, reverse=True)
+              if p.as_posix() not in presets]
+    return presets + others
 
 
 @st.cache_resource(show_spinner="Model yükleniyor...")
-def load_detector(path: str) -> tuple[torch.nn.Module, dict, float]:
-    """Modeli, yapılandırmasını ve (varsa) val kümesinde öğrenilmiş sıcaklığı yükler."""
+def load_detector(path: str) -> tuple[torch.nn.Module, dict, str]:
+    """Modeli, yapılandırmasını ve kullanılan cihazı yükler."""
     from src.models import load_model
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     model, config = load_model(path, device)
-    calib = Path(path).parent / "calibration.json"
-    temperature = json.loads(calib.read_text(encoding="utf-8"))["temperature"] if calib.exists() else 1.0
-    return model, config, float(temperature)
+    return model, config, device
 
 
 def decode_upload(data: bytes, filename: str, page: int = 0) -> tuple[np.ndarray, int]:
@@ -86,35 +94,21 @@ def decode_upload(data: bytes, filename: str, page: int = 0) -> tuple[np.ndarray
 
 
 # ---------------------------------------------------------------------------
-# Analiz
+# Görselleştirme
 # ---------------------------------------------------------------------------
 
-def run_detector(model: torch.nn.Module, config: dict, image: np.ndarray, temperature: float
-                 ) -> tuple[np.ndarray, float]:
-    """Eğitimle aynı ön işlem (boyut sınırı + ImageNet normalizasyonu) ve kayan pencere çıkarımı.
-
-    Returns:
-        (orijinal boyuta ölçeklenmiş olasılık haritası, kalibre belge olasılığı)
-    """
-    from src.models import sliding_window_predict
-
-    small, _ = limit_long_side(image, None, config.get("max_side", 1600))
-    tensor = (torch.from_numpy(small).float().permute(2, 0, 1) / 255.0
-              - torch.tensor(IMAGENET_MEAN).view(3, 1, 1)) / torch.tensor(IMAGENET_STD).view(3, 1, 1)
-    prob_map, doc_logit = sliding_window_predict(model, tensor, tile=config.get("crop_size", 512))
-    prob_map = cv2.resize(prob_map, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
-    return prob_map, float(torch.sigmoid(torch.tensor(doc_logit / temperature)))
+def jet_map(prob_map: np.ndarray) -> np.ndarray:
+    """[0, 1] olasılık haritasını sabit ölçekli jet renk haritasına (RGB uint8) çevirir."""
+    heatmap = cv2.applyColorMap(np.uint8(255 * np.clip(prob_map, 0.0, 1.0)), cv2.COLORMAP_JET)
+    return cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
 
 
-def heatmap_overlay(image: np.ndarray, prob_map: np.ndarray, threshold: float) -> np.ndarray:
-    """Sahte olasılığı yüksek pikselleri kırmızı ile boyar; saydamlık olasılıkla orantılıdır."""
-    alpha = np.where(prob_map >= threshold, 0.25 + 0.5 * prob_map, 0.0)[..., None]
-    red = np.zeros_like(image)
-    red[..., 0] = 255
-    out = (image * (1 - alpha) + red * alpha).astype(np.uint8)
+def overlay_with_contours(image: np.ndarray, prob_map: np.ndarray, threshold: float) -> np.ndarray:
+    """%60 orijinal + %40 ısı haritası; eşiği geçen bölgeler beyaz konturla çizilir."""
+    out = make_overlay(image, prob_map)
     contours, _ = cv2.findContours((prob_map >= threshold).astype(np.uint8), cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(out, contours, -1, (200, 0, 0), max(1, image.shape[1] // 600))
+    cv2.drawContours(out, contours, -1, (255, 255, 255), max(2, image.shape[1] // 400))
     return out
 
 
@@ -150,37 +144,121 @@ def hybrid_score(dl_score: Optional[float], report: Optional[ContentReport]) -> 
     return 1.0 - (1.0 - dl_score) * (1.0 - risk)
 
 
-def verdict(score: float) -> tuple[str, str]:
-    """Skoru insan tarafından okunabilir bir karara çevirir."""
-    if score >= 0.7:
-        return "🔴 Yüksek sahtecilik olasılığı", "error"
-    if score >= 0.3:
-        return "🟠 Şüpheli — manuel inceleme önerilir", "warning"
-    return "🟢 Belirgin sahtecilik izi bulunamadı", "success"
-
-
 # ---------------------------------------------------------------------------
 # Arayüz
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    st.set_page_config(page_title="Belge Sahtecilik Analizi", page_icon="🔍", layout="wide")
-    st.title("🔍 Finansal Belge Sahtecilik Tespiti")
-    st.caption("Dekont · Fatura · Fiş — Derin öğrenme (RGB + SRM gürültü) ve OCR içerik tutarlılığı ile hibrit analiz")
-
+def sidebar() -> dict:
     with st.sidebar:
         st.header("⚙️ Ayarlar")
         checkpoints = find_checkpoints()
-        ckpt = st.selectbox("Model ağırlığı", checkpoints) if checkpoints else None
+        ckpt = st.selectbox("Model", checkpoints, format_func=lambda p: PRESET_CHECKPOINTS.get(p, p)) \
+            if checkpoints else None
         if not checkpoints:
-            st.warning("`checkpoints/` veya `runs/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılacak.\n\n"
-                       "Eğitim: `python train.py --sources synthetic`")
-        threshold = st.slider("Piksel eşiği", 0.05, 0.95, 0.5, 0.05,
-                              help="Bu olasılığın üzerindeki pikseller sahte bölge olarak boyanır.")
-        use_ocr = st.toggle("OCR içerik analizi", value=True)
-        ocr_gpu = st.toggle("OCR için GPU", value=torch.cuda.is_available(), disabled=not torch.cuda.is_available())
+            st.warning("`checkpoints/` veya `runs/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılabilir.")
+        mode = st.radio("Çıkarım modu", list(MODES), format_func=MODES.get,
+                        help="Kayan pencere SRM gürültü istatistiğini korur; 512x512 mod daha hızlıdır "
+                             "ama büyük belgelerde ayrıntı kaybeder.")
 
-    upload = st.file_uploader("Belge yükleyin (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+        st.subheader("🎚️ Kalibrasyon")
+        try:
+            file_t, file_thr, calib_path = load_calibration()
+            st.caption(f"Kaynak: `{calib_path.as_posix()}` (T={file_t:.3f}, eşik={file_thr:.2f})")
+        except (OSError, ValueError) as exc:
+            st.error(f"Kalibrasyon dosyası okunamadı: {exc}")
+            file_t, file_thr = 1.0, 0.5
+        temperature = st.number_input("Temperature (T)", min_value=0.1, max_value=20.0, value=file_t,
+                                      step=0.1, format="%.3f",
+                                      help="Logit'ler sigmoid'den önce T'ye bölünür: p = sigmoid(logit / T).")
+        threshold = st.slider("Optimal Threshold", 0.05, 0.95, float(file_thr), 0.01,
+                              help="Bu olasılığın üzerindeki pikseller ve belgeler sahte kabul edilir.")
+
+        st.subheader("📑 İçerik analizi")
+        use_ocr = st.toggle("OCR + kural motoru", value=False,
+                            help="IBAN, TCKN ve Matrah/KDV/Toplam tutarlılığını denetler (yavaş).")
+        ocr_gpu = st.toggle("OCR için GPU", value=torch.cuda.is_available(),
+                            disabled=not torch.cuda.is_available() or not use_ocr)
+    return {"ckpt": ckpt, "mode": mode, "temperature": float(temperature), "threshold": float(threshold),
+            "use_ocr": use_ocr, "ocr_gpu": ocr_gpu}
+
+
+def run_analysis(image: np.ndarray, settings: dict) -> dict:
+    result: dict = {"prob_map": None, "doc_prob": None, "report": None, "lines": []}
+    if settings["ckpt"]:
+        model, config, device = load_detector(settings["ckpt"])
+        with st.spinner("Derin öğrenme analizi..."):
+            result["prob_map"], result["doc_prob"] = predict(model, image, config, settings["temperature"],
+                                                             device, settings["mode"])
+    if settings["use_ocr"]:
+        with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
+            result["lines"] = run_ocr(image, gpu=settings["ocr_gpu"])
+            result["report"] = check_document_text(result["lines"])
+    return result
+
+
+def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
+    prob_map, doc_prob = result["prob_map"], result["doc_prob"]
+    if prob_map is None:
+        st.image(image, caption="Yüklenen belge", use_container_width=True)
+        return
+
+    st.subheader("🖼️ Görsel Analiz")
+    c1, c2, c3 = st.columns(3)
+    c1.image(image, caption="1. Orijinal Belge", use_container_width=True)
+    c2.image(jet_map(prob_map), caption="2. Sahtecilik Olasılık Haritası (Jet, 0 mavi → 1 kırmızı)",
+             use_container_width=True)
+    c3.image(overlay_with_contours(image, prob_map, threshold),
+             caption="3. Çakıştırılmış Görsel (%60 orijinal / %40 ısı haritası)", use_container_width=True)
+
+    max_pixel = float(prob_map.max())
+    area = float((prob_map >= threshold).mean() * 100)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Belge Sahtecilik Olasılığı", f"%{doc_prob * 100:.1f}")
+    m2.metric("Maksimum Piksel Olasılığı", f"{max_pixel:.3f}")
+    m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
+
+    if doc_prob >= threshold or max_pixel >= threshold:
+        st.error("⚠️ Belgede manipülasyon/sahtecilik tespiti yapıldı!")
+    else:
+        st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")
+
+
+def show_content(image: np.ndarray, result: dict) -> None:
+    report: Optional[ContentReport] = result["report"]
+    if report is None:
+        return
+    st.subheader("📑 İçerik Analizi")
+    final = hybrid_score(result["doc_prob"], report)
+    h1, h2 = st.columns(2)
+    h1.metric("İçerik (OCR) Riski", f"%{report.risk * 100:.1f}" if report.has_evidence else "kanıt yok")
+    h2.metric("Hibrit Sahtecilik Olasılığı", f"%{final * 100:.1f}" if final is not None else "—",
+              help="1 − (1 − p_model) · (1 − r_OCR)")
+    col_a, col_b = st.columns([3, 2])
+    with col_a:
+        if report.findings:
+            for f in report.findings:
+                {"pass": st.success, "fail": st.error}.get(f.status, st.warning)(f.message)
+        else:
+            st.info("Belgede IBAN, TCKN veya Matrah/KDV/Toplam alanı bulunamadı.")
+        if report.fields:
+            st.json({k: v for k, v in report.fields.items()}, expanded=False)
+    with col_b:
+        st.image(draw_findings(image, report), caption="Kural kutuları (turuncu = ihlal)",
+                 use_container_width=True)
+    with st.expander("OCR satırları"):
+        st.dataframe(pd.DataFrame([{"metin": l.text, "güven": round(l.confidence, 2), "kutu": l.bbox}
+                                   for l in result["lines"]]), use_container_width=True)
+
+
+def main() -> None:
+    st.set_page_config(page_title="Document Forensics", page_icon="🔍", layout="wide")
+    st.title("🔍 Document Forensics - Sahtecilik ve Manipülasyon Tespit Sistemi")
+    st.caption("Dekont · Fatura · Fiş — RGB + SRM gürültü akışlı derin öğrenme modeli, "
+               "kalibre olasılıklar ve opsiyonel OCR içerik tutarlılığı")
+
+    settings = sidebar()
+
+    upload = st.file_uploader("Belge yükleyin (JPG, JPEG, PNG, PDF)", type=["jpg", "jpeg", "png", "pdf"])
     if upload is None:
         st.info("Analize başlamak için bir dekont, fatura veya fiş yükleyin.")
         return
@@ -199,64 +277,23 @@ def main() -> None:
         st.error(f"Dosya okunamadı: {exc}")
         return
 
-    dl_score: Optional[float] = None
-    prob_map: Optional[np.ndarray] = None
-    if ckpt:
-        model, config, temperature = load_detector(ckpt)
-        with st.spinner("Derin öğrenme analizi..."):
-            prob_map, dl_score = run_detector(model, config, image, temperature)
+    # Eşik çıkarım sonucunu değiştirmez (yalnızca görselleştirme/karar); diğer ayarlar değişirse
+    # önceki sonuç geçersiz sayılır ve yeniden "Analiz Et" gerekir.
+    key = (hashlib.sha1(data).hexdigest(), page, settings["ckpt"], settings["mode"], settings["temperature"],
+           settings["use_ocr"])
+    if st.button("🔎 Analiz Et", type="primary"):
+        st.session_state["analysis"] = (key, run_analysis(image, settings))
 
-    report: Optional[ContentReport] = None
-    lines = []
-    if use_ocr:
-        with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
-            lines = run_ocr(image, gpu=ocr_gpu)
-            report = check_document_text(lines)
+    stored = st.session_state.get("analysis")
+    if stored is None or stored[0] != key:
+        if stored is not None:
+            st.warning("Ayarlar veya belge değişti; güncel sonuç için yeniden **Analiz Et**'e basın.")
+        st.image(image, caption=f"{upload.name} ({image.shape[1]}x{image.shape[0]})", width=420)
+        return
 
-    # --- Nihai karar ----------------------------------------------------------------
-    final = hybrid_score(dl_score, report)
-    st.subheader("🧭 Nihai Karar")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Hibrit Sahtecilik Olasılığı", f"%{final * 100:.1f}" if final is not None else "—")
-    c2.metric("Derin Öğrenme Skoru", f"%{dl_score * 100:.1f}" if dl_score is not None else "model yok")
-    c3.metric("İçerik (OCR) Riski",
-              f"%{report.risk * 100:.1f}" if report is not None and report.has_evidence else "kanıt yok")
-    if final is not None:
-        text, kind = verdict(final)
-        getattr(st, kind)(text)
-    else:
-        st.info("Karar üretmek için yeterli kanıt yok (model yüklü değil ve OCR doğrulanabilir alan bulamadı).")
-
-    # --- Görsel analiz --------------------------------------------------------------
-    st.subheader("🖼️ Görsel Analiz")
-    if prob_map is not None:
-        col_a, col_b = st.columns(2)
-        col_a.image(image, caption="Orijinal belge", use_container_width=True)
-        col_b.image(heatmap_overlay(image, prob_map, threshold), caption="Sahte bölge ısı haritası",
-                    use_container_width=True)
-        area = float((prob_map >= threshold).mean() * 100)
-        st.caption(f"Eşik üstü alan: %{area:.2f} · En yüksek piksel olasılığı: {prob_map.max():.2f}")
-    else:
-        st.image(image, caption="Yüklenen belge", use_container_width=True)
-
-    # --- İçerik analizi -------------------------------------------------------------
-    if report is not None:
-        st.subheader("📑 İçerik Analizi")
-        col_a, col_b = st.columns([3, 2])
-        with col_a:
-            if report.findings:
-                for f in report.findings:
-                    {"pass": st.success, "fail": st.error}.get(f.status, st.warning)(f.message)
-            else:
-                st.info("Belgede IBAN, TCKN veya Matrah/KDV/Toplam alanı bulunamadı.")
-            if report.fields:
-                st.json({k: v for k, v in report.fields.items()}, expanded=False)
-        with col_b:
-            st.image(draw_findings(image, report), caption="Kural kutuları (turuncu = ihlal)",
-                     use_container_width=True)
-        with st.expander("OCR satırları"):
-            st.dataframe(pd.DataFrame([{"metin": l.text, "güven": round(l.confidence, 2), "kutu": l.bbox}
-                                       for l in lines]), use_container_width=True)
+    result = stored[1]
+    show_visual(image, result, settings["threshold"])
+    show_content(image, result)
 
 
 if __name__ == "__main__":
