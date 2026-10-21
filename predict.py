@@ -48,6 +48,8 @@ DEFAULT_IMAGES = ("test_document.jpeg", "test_document.jpg", "test_document.png"
 IMAGE_SUFFIXES = (".jpeg", ".jpg", ".png", ".bmp", ".tif", ".tiff", ".webp")
 CALIBRATION_PATHS = (Path("checkpoints/calibration.json"), Path("checkpoints/synthetic/calibration.json"))
 DEFAULT_CALIBRATION = {"temperature": 6.389, "optimal_threshold": 0.35}
+CLEAN_PIXEL_LIMIT = 0.05  # Bu değerin altındaki maks. piksel olasılığı "sahte bölge yok" sayılır
+DOC_WEIGHT = 0.7          # Temiz haritada belge skorunun ağırlığı (kalanı maks. piksel olasılığı)
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,6 +149,24 @@ def predict(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, A
     return np.clip(mask_resized, 0.0, 1.0).astype(np.float32), doc_prob
 
 
+def fuse_doc_score(doc_prob: float, max_pixel_prob: float) -> float:
+    """
+    Piksel haritasında sahte bölge izi yoksa belge skorunu baskılar.
+
+    Sınıflandırma kafası, segmentasyon haritası tamamen temiz olduğu hâlde yüksek
+    logit üretebilir (ör. temiz bir fişte %85). Maksimum piksel olasılığı
+    ``CLEAN_PIXEL_LIMIT``'in altındaysa iki kanıt ağırlıklı ortalamayla birleştirilir:
+
+        doc_prob = 0.7 · doc_prob + 0.3 · max_pixel_prob
+
+    Bu durumda skor en fazla 0.7 + 0.3 · 0.05 = %71.5 olabilir. Piksel kanıtı varsa
+    belge skoru değiştirilmez.
+    """
+    if max_pixel_prob < CLEAN_PIXEL_LIMIT:
+        return DOC_WEIGHT * doc_prob + (1.0 - DOC_WEIGHT) * max_pixel_prob
+    return doc_prob
+
+
 def make_overlay(image: np.ndarray, mask_resized: np.ndarray) -> np.ndarray:
     """%60 orijinal + %40 jet ısı haritası (RGB uint8)."""
     heatmap = cv2.applyColorMap(np.uint8(255 * mask_resized), cv2.COLORMAP_JET)
@@ -200,7 +220,11 @@ def main() -> None:
 
     image = read_image_rgb(image_path)
     logger.info("Görsel: %s (%dx%d), mod=%s", image_path, image.shape[1], image.shape[0], args.mode)
-    mask_resized, doc_prob = predict(model, image, config, temperature, args.device, args.mode)
+    mask_resized, raw_doc_prob = predict(model, image, config, temperature, args.device, args.mode)
+    doc_prob = fuse_doc_score(raw_doc_prob, float(mask_resized.max()))
+    if doc_prob != raw_doc_prob:
+        logger.info("Piksel haritası temiz (maks < %.2f): belge skoru %.4f → %.4f", CLEAN_PIXEL_LIMIT,
+                    raw_doc_prob, doc_prob)
     overlay = make_overlay(image, mask_resized)
 
     out_path = Path(args.output)

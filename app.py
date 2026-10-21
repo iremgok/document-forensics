@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from predict import load_calibration, make_overlay, predict
+from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, load_calibration, make_overlay, predict
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 
 CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
@@ -183,12 +183,13 @@ def sidebar() -> dict:
 
 
 def run_analysis(image: np.ndarray, settings: dict) -> dict:
-    result: dict = {"prob_map": None, "doc_prob": None, "report": None, "lines": []}
+    result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": []}
     if settings["ckpt"]:
         model, config, device = load_detector(settings["ckpt"])
         with st.spinner("Derin öğrenme analizi..."):
-            result["prob_map"], result["doc_prob"] = predict(model, image, config, settings["temperature"],
-                                                             device, settings["mode"])
+            result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, settings["temperature"],
+                                                                 device, settings["mode"])
+        result["doc_prob"] = fuse_doc_score(result["raw_doc_prob"], float(result["prob_map"].max()))
     if settings["use_ocr"]:
         with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
             result["lines"] = run_ocr(image, gpu=settings["ocr_gpu"])
@@ -213,7 +214,11 @@ def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
     max_pixel = float(prob_map.max())
     area = float((prob_map >= threshold).mean() * 100)
     m1, m2, m3 = st.columns(3)
-    m1.metric("Belge Sahtecilik Olasılığı", f"%{doc_prob * 100:.1f}")
+    raw = result["raw_doc_prob"]
+    m1.metric("Belge Sahtecilik Olasılığı", f"%{doc_prob * 100:.1f}",
+              delta=f"{(doc_prob - raw) * 100:+.1f} puan (ham %{raw * 100:.1f})" if doc_prob != raw else None,
+              delta_color="off",
+              help=f"Maks. piksel olasılığı {CLEAN_PIXEL_LIMIT} altındaysa: 0.7 · belge + 0.3 · maks. piksel")
     m2.metric("Maksimum Piksel Olasılığı", f"{max_pixel:.3f}")
     m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
 
