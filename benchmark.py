@@ -193,7 +193,7 @@ def main() -> None:
     logger.info("Değerlendirme kümesi: %s", frame.groupby(["subset", "label"]).size().to_dict())
     rng = np.random.default_rng(args.seed)
 
-    records, counts, regions, samples_p, samples_y, samples_img = [], [], [], [], []
+    records, counts, regions, samples_p, samples_y, samples_img = [], [], [], [], [], []
     for idx, row in enumerate(frame.itertuples()):
         data = Path(row.image_path).read_bytes()
         image = read_image_rgb(row.image_path)
