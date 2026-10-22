@@ -136,6 +136,38 @@ def complete_tckn(first_nine: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 2b) VKN — 10 haneli Vergi Kimlik Numarası (GİB algoritması)
+# ---------------------------------------------------------------------------
+
+def _vkn_check_digit(first_nine: str) -> int:
+    """
+    VKN'nin 10. hanesini (kontrol hanesi) hesaplar.
+
+    i = 1..9 için: t = (d_i + 10 − i) mod 10; t = 9 ise katkı 9, aksi hâlde
+    katkı = (t · 2^(10−i)) mod 9 (t ≠ 0 iken sonuç 0 çıkarsa 9 alınır).
+    Kontrol hanesi = (10 − Σ katkı mod 10) mod 10.
+    """
+    total = 0
+    for i, ch in enumerate(first_nine, start=1):
+        t = (int(ch) + 10 - i) % 10
+        v = 9 if t == 9 else (t * 2 ** (10 - i)) % 9
+        if t != 0 and v == 0:
+            v = 9
+        total += v
+    return (10 - total % 10) % 10
+
+
+def vkn_is_valid(vkn: str) -> bool:
+    """10 haneli VKN doğrulaması. Şahıs şirketlerinde VKN yerine 11 haneli TCKN kullanılır."""
+    return bool(re.fullmatch(r"\d{10}", vkn)) and _vkn_check_digit(vkn[:9]) == int(vkn[9])
+
+
+def complete_vkn(first_nine: str) -> str:
+    """İlk 9 haneden geçerli bir VKN üretir (sentetik veri için)."""
+    return f"{first_nine}{_vkn_check_digit(first_nine)}"
+
+
+# ---------------------------------------------------------------------------
 # 3) Tutar ayrıştırma (TR: 1.234,56 — EN: 1,234.56)
 # ---------------------------------------------------------------------------
 
@@ -252,12 +284,17 @@ PASS, FAIL, WARN = "pass", "fail", "warn"
 RULE_WEIGHTS: dict[str, float] = {
     "iban": 0.90,
     "tckn": 0.70,
+    "vkn": 0.70,
     "total_math": 0.85,
     "vat_rate": 0.60,
 }
 
 #: Matematiksel eşitlik toleransı (kuruş yuvarlama farkları için).
 AMOUNT_TOLERANCE = 0.02
+
+#: Ortalama OCR güveni bunun altındaki satırlarda kural ihlali FAIL yerine WARN olur:
+#: hatalı okunmuş bir rakam, sahte belge kanıtı sayılmamalıdır.
+MIN_OCR_CONFIDENCE = 0.60
 
 
 @dataclass
@@ -309,153 +346,298 @@ def _ascii_fold(text: str) -> str:
     return "".join(c for c in text if not unicodedata.combining(c)).lower()
 
 
-#: Satır sınıflandırma anahtar kelimeleri (ASCII'ye indirgenmiş). Sıra önemlidir:
-#: "ara toplam" ve "genel toplam" ifadeleri "toplam"dan önce denetlenir.
-_MATRAH_KEYS = ("ara toplam", "matrah", "subtotal", "sub total", "net amount", "net tutar")
-_GRAND_KEYS = ("genel toplam", "grand total", "total due", "odenecek", "amount due")
-_VAT_KEYS = ("kdv", "vat", "tax")
-_TOTAL_KEYS = ("toplam", "total")
+#: Satır türleri ve anahtar kelimeleri (ASCII'ye indirgenmiş). **Sıra önemlidir:** ilk eşleşen
+#: tür kazanır; bu yüzden "toplam iskonto", "toplam kdv", "kdv dahil toplam" gibi bileşik
+#: ifadeler yalın "toplam"dan önce denetlenir. e-Arşiv / e-Fatura etiketleri dahildir:
+#:   Mal Hizmet Toplam Tutarı (gross) − Toplam İskonto (discount) = Matrah
+#:   Matrah + Σ Hesaplanan KDV = Vergiler Dahil Toplam Tutar (total) [= Ödenecek Tutar]
+_LINE_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("discount", ("iskonto", "indirim", "discount")),
+    ("total", ("vergiler dahil", "kdv dahil", "vergi dahil", "genel toplam", "odenecek",
+               "grand total", "total due", "amount due", "incl. vat", "incl vat")),
+    ("matrah", ("ara toplam", "matrah", "vergiye tabi", "kdv haric", "subtotal", "sub total",
+                "net amount", "net tutar")),
+    ("gross", ("mal hizmet toplam", "mal/hizmet toplam", "mal ve hizmet toplam")),
+    ("kdv_total", ("toplam kdv", "kdv toplam", "total vat", "vat total")),
+    ("kdv", ("hesaplanan kdv", "kdv", "vat", "tax")),
+    ("total", ("toplam tutar", "toplam", "total")),
+)
+
+#: Kısa ve genel anahtarlar: tutarı bir alt satırda aramak (bkz. ``_check_totals``) için fazla
+#: belirsizdir (ör. kalem tablosunun "Toplam" sütun başlığı).
+_GENERIC_KEYS = {"toplam", "total", "kdv", "vat", "tax"}
+
+
+def _levenshtein_le(a: str, b: str, limit: int) -> bool:
+    """``a`` ile ``b`` arasındaki düzenleme mesafesi ``limit``'ten küçük-eşit mi? (kısa dizeler için)"""
+    if abs(len(a) - len(b)) > limit:
+        return False
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        if min(cur) > limit:
+            return False
+        prev = cur
+    return prev[-1] <= limit
 
 
 def _contains(text: str, key: str) -> bool:
     """
-    ``key`` metinde geçiyor mu? 5+ harfli anahtarlarda **1 harf** ikame hatasına izin verilir.
+    ``key`` metinde geçiyor mu? OCR hatalarına toleranslı eşleşme.
 
-    OCR özellikle serif fontlarda harfleri karıştırır (ör. ``TOTAL`` → ``TOIAL``,
-    ``SUBTOTAL`` → ``SUBTOIAL``). Metin üzerinde anahtar uzunluğunda bir pencere
-    kaydırılır ve Hamming mesafesi ≤ 1 ise eşleşme kabul edilir. Kısa anahtarlarda
-    (KDV, VAT) tam eşleşme aranır; aksi hâlde yanlış pozitif riski yükselir.
+    * 5-9 harfli anahtarlarda 1, 10+ harflilerde 2 **düzenleme** (ikame, eksik ya da fazla
+      harf) hatasına izin verilir: ``TOIAL`` → total, ``TOPLM`` → toplam,
+      ``Vergiler Dahl`` → vergiler dahil.
+    * Kısa anahtarlarda (KDV, VAT) tam eşleşme aranır; aksi hâlde yanlış pozitif riski yükselir.
     """
     if key in text:
         return True
-    if len(key) < 5:
-        return False
     n = len(key)
-    return any(sum(a != b for a, b in zip(text[i:i + n], key)) <= 1 for i in range(len(text) - n + 1))
+    if n < 5:
+        return False
+    limit = 1 if n < 10 else 2
+    for size in range(n - limit, n + limit + 1):
+        for i in range(len(text) - size + 1):
+            window = text[i:i + size]
+            if window[0] == key[0] and _levenshtein_le(window, key, limit):
+                return True
+    return False
 
 
-def _classify_line(folded: str) -> Optional[str]:
-    """Bir satırın matrah / kdv / toplam satırı olup olmadığını belirler."""
-    def has(keys: tuple[str, ...]) -> bool:
-        return any(_contains(folded, k) for k in keys)
-
-    if has(_MATRAH_KEYS):
-        return "matrah"
-    if has(_GRAND_KEYS):
-        return "total"
-    if has(_VAT_KEYS):
-        # "KDV dahil toplam" gibi ifadeler toplam satırıdır.
-        return "total" if "dahil" in folded or "incl" in folded else "kdv"
-    if has(_TOTAL_KEYS):
-        return "total"
+def _classify_line(folded: str) -> Optional[tuple[str, str]]:
+    """Satırın türünü ve eşleşen anahtarı döndürür: (matrah | gross | discount | kdv | kdv_total | total, anahtar)."""
+    for kind, keys in _LINE_KINDS:
+        for key in keys:
+            if _contains(folded, key):
+                return kind, key
     return None
 
 
-#: Kontrol hanelerinde OCR'ın rakam yerine okuyabileceği harflere (O, I, L, S, B, Z) izin
-#: verilir; ``normalize_iban`` bunları rakama çevirir.
-_IBAN_RE = re.compile(r"\b([A-Z]{2}\s?[0-9OILSBZ]{2}(?:\s?[A-Z0-9]{2,4}){3,8})\b")
-_TCKN_RE = re.compile(r"(?<!\d)([1-9]\d{10})(?!\d)")
-_TCKN_KEYS = ("tckn", "t.c", "kimlik", "tc no", "tc kimlik")
+def _status(ok: bool, *lines: OcrLine) -> str:
+    """Kural sonucu: geçerse PASS; geçmezse OCR güveni yeterliyse FAIL, değilse WARN."""
+    if ok:
+        return PASS
+    confident = all(line.confidence >= MIN_OCR_CONFIDENCE for line in lines)
+    return FAIL if confident else WARN
+
+
+# --- IBAN ---------------------------------------------------------------------------
+
+#: OCR'ın rakam yerine okuyabileceği harfler; ``normalize_iban`` bunları rakama çevirir.
+_DIGITISH = "0-9OILSBZ"
+#: TR IBAN adayı: "TR" + 24 hane (aralarda boşluk/tire olabilir). OCR eksik/fazla okumasını
+#: yakalamak için 20-28 hane kabul edilir; uzunluk ayrıca denetlenir.
+_TR_IBAN_RE = re.compile(rf"(?<![A-Z0-9])T\s?R\s?((?:[{_DIGITISH}][\s\-]?){{20,28}})(?![{_DIGITISH}])")
+#: Yabancı IBAN adayı: yalnızca satırda "IBAN" etiketi varsa aranır.
+_FOREIGN_IBAN_RE = re.compile(r"(?<![A-Z0-9])([A-Z]{2}\s?\d{2}(?:\s?[A-Z0-9]{2,4}){3,8})(?![A-Z0-9])")
+
+
+def _tr_iban_candidates(text: str) -> list[str]:
+    """Metindeki TR IBAN adaylarını normalize edilmiş hâlde döndürür.
+
+    Yanlış pozitifleri önlemek için gövdedeki karakterlerin en az %80'i OCR'dan **gerçek
+    rakam** olarak gelmiş olmalıdır: ``TRENDYOL`` ya da ``BE11NTINIZ`` gibi kelimeler,
+    harf→rakam düzeltmesiyle IBAN'a dönüştürülemez.
+    """
+    out = []
+    for m in _TR_IBAN_RE.finditer(re.sub(r"\s+", " ", text.upper())):
+        body = re.sub(r"[\s\-]", "", m.group(1))
+        if sum(c.isdigit() for c in body) / len(body) >= 0.8:
+            out.append(normalize_iban("TR" + body))
+    return out
 
 
 def _check_ibans(lines: Sequence[OcrLine], report: ContentReport) -> None:
-    """Satırlardaki tüm IBAN adaylarını Mod-97 ile doğrular."""
-    for line in lines:
-        for m in _IBAN_RE.finditer(line.text.upper()):
-            iban = normalize_iban(m.group(1))
-            if iban[:2] not in IBAN_LENGTHS:
-                continue
-            report.fields.setdefault("iban", []).append(iban)
-            if iban_is_valid(iban):
-                report.findings.append(Finding("iban", PASS, f"✅ IBAN geçerli (Mod-97): {iban}", line.bbox))
-            elif len(iban) != IBAN_LENGTHS[iban[:2]]:
+    """
+    IBAN adaylarını Mod-97 ile doğrular.
+
+    * **TR IBAN:** "TR" + rakam ağırlıklı 24 hane. Uzunluk 26 değilse ve satırda "IBAN"
+      etiketi varsa WARN (OCR eksik okumuş olabilir); etiket yoksa aday yok sayılır.
+    * **Yabancı IBAN:** yalnızca satırda "IBAN" etiketi varsa aranır ve rakam oranı ≥ %50
+      olmalıdır. Türkçe metindeki ``IT18ARIYLE`` (itibarıyle) gibi kelimeler böylece elenir.
+    * IBAN satır sonunda bölünmüşse (etiketli satırda eksik aday), sonraki satırla birleştirilir.
+    """
+    seen: set[str] = set()
+
+    def add(iban: str, line: OcrLine, labelled: bool) -> None:
+        if iban in seen:
+            return
+        expected = IBAN_LENGTHS.get(iban[:2])
+        if expected is None:
+            return
+        if len(iban) != expected:
+            if labelled:
+                seen.add(iban)
                 report.findings.append(Finding(
-                    "iban", WARN,
-                    f"⚠️ IBAN uzunluğu beklenenden farklı ({len(iban)}≠{IBAN_LENGTHS[iban[:2]]}); "
-                    f"OCR eksik okumuş olabilir: {iban}", line.bbox))
-            else:
-                report.findings.append(Finding("iban", FAIL, f"⚠️ IBAN Kontrol Hanesi Geçersiz: {iban}", line.bbox))
+                    "iban", WARN, f"ℹ️ IBAN eksik/fazla okunmuş olabilir ({len(iban)}≠{expected}): {iban}", line.bbox))
+            return
+        seen.add(iban)
+        report.fields.setdefault("iban", []).append(iban)
+        if iban_is_valid(iban):
+            report.findings.append(Finding("iban", PASS, f"✅ IBAN geçerli (Mod-97): {iban}", line.bbox))
+        else:
+            report.findings.append(Finding("iban", _status(False, line),
+                                           f"⚠️ IBAN Kontrol Hanesi Geçersiz: {iban}", line.bbox))
+
+    for idx, line in enumerate(lines):
+        labelled = "iban" in _ascii_fold(line.text)
+        candidates = _tr_iban_candidates(line.text)
+        if labelled and not any(len(c) == 26 for c in candidates) and idx + 1 < len(lines):
+            joined = _tr_iban_candidates(f"{line.text} {lines[idx + 1].text}")
+            candidates = [c for c in joined if len(c) == 26] or candidates
+        for iban in candidates:
+            add(iban, line, labelled)
+        if labelled:
+            for m in _FOREIGN_IBAN_RE.finditer(line.text.upper()):
+                raw = re.sub(r"\s", "", m.group(1))
+                if raw.startswith("TR") or sum(c.isdigit() for c in raw) / len(raw) < 0.5:
+                    continue
+                add(normalize_iban(raw), line, labelled)
 
 
-def _check_tckns(lines: Sequence[OcrLine], report: ContentReport) -> None:
-    """TCKN anahtar kelimesi içeren satırlardaki 11 haneli numaraları doğrular."""
+# --- TCKN / VKN -----------------------------------------------------------------------
+
+#: Kimlik etiketleri (ASCII'ye indirgenmiş metinde). Etiketin hemen ardındaki numara okunur.
+_ID_LABEL_RE = re.compile(
+    r"(vkn\s*/\s*tckn|tckn\s*/\s*vkn|vkn|tckn|vergi\s*(?:kimlik)?\s*(?:no|numarasi)|"
+    r"t\.?\s?c\.?\s*kimlik\s*(?:no|numarasi)?|kimlik\s*(?:no|numarasi)|tc\s*no)")
+#: Etiketten sonra ilk numara: önce boşluksuz 10-11 hane, yoksa tek boşluklarla bölünmüş
+#: ("123 456 789 01") ve tam olarak 10-11 haneden oluşan bir grup. Komşu sayılar
+#: (ör. "1234567890 5 adet") birleştirilip sahte bir 11 haneli TCKN üretilmez.
+_ID_PLAIN_RE = re.compile(r"(?<!\d)(\d{10,11})(?!\d)")
+_ID_SPACED_RE = re.compile(r"(?<!\d)(?<!\d )(\d{2,4}(?: \d{2,4}){2,4})(?! ?\d)")
+
+
+def _first_id_after(text: str) -> Optional[str]:
+    """Metindeki ilk 10-11 haneli kimlik numarası adayını döndürür."""
+    candidates = [m for m in (_ID_PLAIN_RE.search(text), _ID_SPACED_RE.search(text)) if m]
+    for m in sorted(candidates, key=lambda m: m.start()):
+        digits = m.group(1).replace(" ", "")
+        if len(digits) in (10, 11):
+            return digits
+    return None
+
+
+def _check_ids(lines: Sequence[OcrLine], report: ContentReport) -> None:
+    """
+    Etiketli kimlik numaralarını **hane sayısına göre** doğrular:
+
+    * 10 hane → VKN algoritması (kurumlar),
+    * 11 hane → TCKN algoritması (kişiler; şahıs şirketlerinde "VKN" etiketiyle de yazılır).
+
+    Yalnızca bir etiketin (VKN, TCKN, Vergi No, T.C. Kimlik No...) en fazla 40 karakter
+    sonrasındaki ilk numara okunur; etiketsiz 10-11 haneli sayılar (sipariş no, ETTN,
+    telefon) denetlenmez.
+    """
+    seen: set[str] = set()
     for line in lines:
         folded = _ascii_fold(line.text)
-        if not any(k in folded for k in _TCKN_KEYS):
-            continue
-        digits_only = re.sub(r"(?<=\d)\s(?=\d)", "", line.text)  # "123 456..." → "123456..."
-        for m in _TCKN_RE.finditer(digits_only):
-            tckn = m.group(1)
-            report.fields.setdefault("tckn", []).append(tckn)
-            if tckn_is_valid(tckn):
-                report.findings.append(Finding("tckn", PASS, f"✅ TCKN algoritmik olarak geçerli: {tckn}", line.bbox))
-            else:
-                report.findings.append(Finding("tckn", FAIL, f"⚠️ TCKN algoritması tutmuyor: {tckn}", line.bbox))
+        for label in _ID_LABEL_RE.finditer(folded):
+            number = _first_id_after(folded[label.end():label.end() + 40])
+            if number is None or number in seen:
+                continue
+            seen.add(number)
+            rule, valid = ("vkn", vkn_is_valid) if len(number) == 10 else ("tckn", tckn_is_valid)
+            name = rule.upper()
+            ok = valid(number)
+            report.fields.setdefault(rule, []).append(number)
+            report.findings.append(Finding(
+                rule, _status(ok, line),
+                f"✅ {name} algoritmik olarak geçerli: {number}" if ok else f"⚠️ {name} algoritması tutmuyor: {number}",
+                line.bbox))
 
+
+# --- Tutarlar ---------------------------------------------------------------------------
 
 def _check_totals(lines: Sequence[OcrLine], report: ContentReport) -> None:
     """
-    Matrah + KDV == Genel Toplam ve Matrah × KDV oranı == KDV kurallarını denetler.
+    Tutar tutarlılığı:
 
-    Her alan için belgede **son** görülen değer kullanılır (fişlerde ara satırlar
-    önce, nihai toplam en sonda yazılır).
+        matrah = Ara Toplam / Matrah        (yoksa: Mal Hizmet Toplamı − İskonto)
+        matrah + Σ KDV == Genel Toplam / Vergiler Dahil Toplam / Ödenecek Tutar
+        tek KDV oranı varsa: matrah × oran == KDV
+
+    * Her tür için belgede **son** görülen değer kullanılır (nihai toplam en sonda yazılır).
+    * Farklı oranlı KDV satırları (%1, %10, %20) toplanır; "Toplam KDV" satırı varsa o kullanılır.
+    * Etiket satırında tutar yoksa (OCR etiketi ve tutarı ayrı satıra bölmüşse) hemen sonraki
+      **etiketsiz** satırdaki tutar alınır; bu yalnızca özgül etiketlerde yapılır.
     """
     values: dict[str, tuple[float, OcrLine]] = {}
-    rate: Optional[float] = None
-    for line in lines:
-        folded = _ascii_fold(line.text)
-        kind = _classify_line(folded)
-        if kind is None:
+    kdv_by_rate: dict[Optional[float], tuple[float, OcrLine]] = {}
+    for idx, line in enumerate(lines):
+        match = _classify_line(_ascii_fold(line.text))
+        if match is None:
             continue
+        kind, key = match
+        source = line
         amounts = find_amounts(line.text)
+        if not amounts and key not in _GENERIC_KEYS and idx + 1 < len(lines):
+            nxt = lines[idx + 1]
+            if _classify_line(_ascii_fold(nxt.text)) is None:
+                amounts, source = find_amounts(nxt.text), nxt
         if not amounts:
             continue
-        values[kind] = (amounts[-1], line)
         if kind == "kdv":
             m = _RATE_RE.search(line.text)
-            if m:
-                rate = float(m.group(1) or m.group(2)) / 100.0
+            rate = float(m.group(1) or m.group(2)) / 100.0 if m else None
+            kdv_by_rate[rate] = (amounts[-1], source)
+        else:
+            values[kind] = (amounts[-1], source)
+
+    kdv_value: Optional[float] = None
+    kdv_line: Optional[OcrLine] = None
+    if "kdv_total" in values:
+        kdv_value, kdv_line = values.pop("kdv_total")
+    elif kdv_by_rate:
+        kdv_value = round(sum(v for v, _ in kdv_by_rate.values()), 2)
+        kdv_line = list(kdv_by_rate.values())[-1][1]
+
+    if "matrah" not in values and "gross" in values:
+        gross, gross_line = values["gross"]
+        discount = values.get("discount", (0.0, gross_line))[0]
+        values["matrah"] = (round(gross - discount, 2), gross_line)
 
     report.fields.update({k: v[0] for k, v in values.items()})
-    if rate is not None:
-        report.fields["kdv_orani"] = rate
+    if kdv_value is not None:
+        report.fields["kdv"] = kdv_value
+    rates = [r for r in kdv_by_rate if r is not None]
+    if len(rates) == 1:
+        report.fields["kdv_orani"] = rates[0]
 
-    if {"matrah", "kdv", "total"} <= values.keys():
-        matrah, kdv, total = (values[k][0] for k in ("matrah", "kdv", "total"))
-        diff = abs(matrah + kdv - total)
-        bbox = values["total"][1].bbox
-        if diff <= AMOUNT_TOLERANCE:
-            report.findings.append(Finding(
-                "total_math", PASS,
-                f"✅ Tutar Matematiksel Olarak Tutarlı: {matrah:,.2f} + {kdv:,.2f} = {total:,.2f}", bbox))
-        else:
-            report.findings.append(Finding(
-                "total_math", FAIL,
-                f"⚠️ Matrah + KDV ≠ Genel Toplam: {matrah:,.2f} + {kdv:,.2f} = {matrah + kdv:,.2f} "
-                f"(belgede {total:,.2f}, fark {diff:,.2f})", bbox))
-    elif values:
-        missing = {"matrah", "kdv", "total"} - values.keys()
+    have = set(values) | ({"kdv"} if kdv_value is not None else set())
+    if {"matrah", "kdv", "total"} <= have:
+        (matrah, m_line), (total, t_line) = values["matrah"], values["total"]
+        diff = abs(matrah + kdv_value - total)
+        ok = diff <= AMOUNT_TOLERANCE
+        report.findings.append(Finding(
+            "total_math", _status(ok, m_line, kdv_line, t_line),
+            f"✅ Tutar Matematiksel Olarak Tutarlı: {matrah:,.2f} + {kdv_value:,.2f} = {total:,.2f}" if ok else
+            f"⚠️ Matrah + KDV ≠ Genel Toplam: {matrah:,.2f} + {kdv_value:,.2f} = {matrah + kdv_value:,.2f} "
+            f"(belgede {total:,.2f}, fark {diff:,.2f})", t_line.bbox))
+    elif have & {"matrah", "kdv", "total"}:
+        missing = {"matrah", "kdv", "total"} - have
         report.findings.append(Finding(
             "total_math", WARN, f"ℹ️ Tutar kontrolü için eksik alan(lar): {', '.join(sorted(missing))}"))
 
-    if rate is not None and {"matrah", "kdv"} <= values.keys():
-        matrah, kdv = values["matrah"][0], values["kdv"][0]
+    if len(rates) == 1 and len(kdv_by_rate) == 1 and "matrah" in values:
+        rate = rates[0]
+        matrah, m_line = values["matrah"]
         expected = round(matrah * rate, 2)
-        bbox = values["kdv"][1].bbox
-        if abs(expected - kdv) <= max(AMOUNT_TOLERANCE, 0.005 * expected):
-            report.findings.append(Finding("vat_rate", PASS, f"✅ KDV oranı tutarlı (%{rate * 100:.0f})", bbox))
-        else:
-            report.findings.append(Finding(
-                "vat_rate", FAIL,
-                f"⚠️ KDV oranı tutmuyor: {matrah:,.2f} × %{rate * 100:.0f} = {expected:,.2f}, belgede {kdv:,.2f}",
-                bbox))
+        ok = abs(expected - kdv_value) <= max(AMOUNT_TOLERANCE, 0.005 * expected)
+        report.findings.append(Finding(
+            "vat_rate", _status(ok, m_line, kdv_line),
+            f"✅ KDV oranı tutarlı (%{rate * 100:.0f})" if ok else
+            f"⚠️ KDV oranı tutmuyor: {matrah:,.2f} × %{rate * 100:.0f} = {expected:,.2f}, belgede {kdv_value:,.2f}",
+            kdv_line.bbox))
 
 
 def check_document_text(lines: Sequence[OcrLine]) -> ContentReport:
     """Tüm kuralları çalıştırır ve birleşik raporu döndürür."""
     report = ContentReport()
     _check_ibans(lines, report)
-    _check_tckns(lines, report)
+    _check_ids(lines, report)
     _check_totals(lines, report)
     return report
 

@@ -27,7 +27,18 @@ Sahtecilik işlemleri (maske: 255 = sahte piksel)
                       yeni metin yazılır ve bölge yumuşatılır (difüzyon çıktılarındaki düşük
                       yüksek-frekans gürültüsünü taklit eder).
 
+Dijital mod (``--digital-ratio``)
+--------------------------------
+Taranmış kâğıt yerine **dijital doğmuş** belge (e-Arşiv PDF, uygulama ekran görüntüsü) üretir:
+kâğıt tonu, gürültü, bulanıklık ve ilk JPEG **uygulanmaz**; beyaz zemin ve keskin tipografi
+korunur. Son adımda gerçek iletim kanallarından biri grup içindeki tüm varyantlara aynı
+parametrelerle uygulanır (bkz. ``DIGITAL_CHANNELS``): kayıpsız PNG, yüksek kaliteli JPEG,
+ekran görüntüsü (ölçekleme) veya WhatsApp (küçültme + JPEG). Böylece model "temiz zemin =
+sahte" ya da "JPEG = sahte" gibi kestirme ipuçları öğrenemez.
+
 Kullanım:
+    python -m src.generate_synthetic --out data/6_synthetic_digital --num-docs 1500 --digital-ratio 1.0
+    python -m src.generate_synthetic --digital-ratio 0.5      # yarı taranmış, yarı dijital
     python -m src.generate_synthetic                          # 2000 belge × 4 = ~8000 görüntü (Stage C)
     python -m src.generate_synthetic --num-images 10000       # hedef görüntü sayısından belge sayısı
     python -m src.generate_synthetic --out data/4_synthetic_tr_en --num-docs 1000 --variants 3 --overwrite
@@ -418,6 +429,46 @@ def simulate_acquisition(image: np.ndarray, rng: random.Random) -> np.ndarray:
     return jpeg_roundtrip(np.clip(out, 0, 255).astype(np.uint8), rng.randint(80, 97))
 
 
+#: Dijital belgelerin kullanıcıya ulaştığı kanallar ve seçilme olasılıkları.
+DIGITAL_CHANNELS: dict[str, float] = {
+    "png": 0.25,         # PDF → PNG dışa aktarım (kayıpsız)
+    "pdf_jpeg": 0.25,    # PDF → yüksek kaliteli JPEG (q 90-98)
+    "screenshot": 0.25,  # ekran görüntüsü: ölçek 0.75-1.5 (HiDPI / yakınlaştırma) + PNG ya da JPEG
+    "whatsapp": 0.25,    # uzun kenar ≤ 1600 + JPEG q 70-85
+}
+
+
+def sample_digital_channel(rng: random.Random) -> dict[str, object]:
+    """Grup için bir iletim kanalı ve parametrelerini seçer (tüm varyantlar aynısını kullanır)."""
+    name = rng.choices(list(DIGITAL_CHANNELS), weights=list(DIGITAL_CHANNELS.values()))[0]
+    if name == "png":
+        return {"name": name, "scale": 1.0, "quality": None}
+    if name == "pdf_jpeg":
+        return {"name": name, "scale": 1.0, "quality": rng.randint(90, 98)}
+    if name == "screenshot":
+        return {"name": name, "scale": rng.uniform(0.75, 1.5),
+                "quality": rng.choice([None, rng.randint(85, 95)])}
+    return {"name": name, "scale": None, "max_side": 1600, "quality": rng.randint(70, 85)}
+
+
+def apply_digital_channel(image: np.ndarray, mask: np.ndarray, channel: dict[str, object]
+                          ) -> tuple[np.ndarray, np.ndarray]:
+    """Kanalın geometrik kısmını (ölçekleme) uygular; maske en yakın komşu ile aynı ölçeklenir.
+
+    Sıkıştırma ``_save`` sırasında ``channel['quality']`` ile yapılır (çift JPEG olmaz).
+    """
+    scale = channel.get("scale")
+    if channel.get("max_side"):
+        scale = min(1.0, float(channel["max_side"]) / max(image.shape[:2]))
+    if scale and abs(scale - 1.0) > 1e-3:
+        h, w = image.shape[:2]
+        size = (round(w * scale), round(h * scale))
+        interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+        image = cv2.resize(image, size, interpolation=interp)
+        mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
+    return image, mask
+
+
 # ---------------------------------------------------------------------------
 # Sahtecilik işlemleri
 # ---------------------------------------------------------------------------
@@ -640,12 +691,18 @@ def _save(path: Path, image: np.ndarray, quality: Optional[int] = None) -> None:
 
 
 def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str]], out_dir: Path,
-                   n_variants: int, tr_ratio: float) -> list[dict[str, object]]:
-    """Bir şablon örneği için 1 orijinal + ``n_variants`` sahte görüntü üretir ve diske yazar."""
+                   n_variants: int, tr_ratio: float, digital_ratio: float = 0.0) -> list[dict[str, object]]:
+    """Bir şablon örneği için 1 orijinal + ``n_variants`` sahte görüntü üretir ve diske yazar.
+
+    ``digital_ratio`` olasılıkla grup dijital doğmuş belgedir: edinim simülasyonu atlanır ve
+    sonda ``sample_digital_channel`` ile seçilen iletim kanalı uygulanır.
+    """
     lang = "tr" if rng.random() < tr_ratio else "en"
     doc_type = rng.choice(list(RENDERERS))
     seed = rng.randint(0, 2**31)
-    acquired = simulate_acquisition(np.asarray(RENDERERS[doc_type](random.Random(seed), lang, fonts).image), rng)
+    digital = rng.random() < digital_ratio
+    rendered = np.asarray(RENDERERS[doc_type](random.Random(seed), lang, fonts).image.convert("RGB"))
+    acquired = rendered.copy() if digital else simulate_acquisition(rendered, rng)
 
     rows = []
     variants: list[tuple[str, np.ndarray, np.ndarray]] = [
@@ -663,18 +720,28 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
             continue
         variants.append((op_name, tampered, mask))
 
-    final_quality = rng.randint(75, 95)  # Grup içindeki tüm varyantlar aynı son kaliteyle kaydedilir.
+    # Grup içindeki tüm varyantlar aynı son kanaldan / kaliteyle kaydedilir.
+    if digital:
+        channel = sample_digital_channel(rng)
+        final_quality = channel["quality"]
+    else:
+        channel = {"name": "scan"}
+        final_quality = rng.randint(75, 95)
+    ext = ".jpg" if final_quality else ".png"
     for idx, (op_name, image, mask) in enumerate(variants):
+        if digital:
+            image, mask = apply_digital_channel(image, mask, channel)
         stem = f"{group_id}__{idx:02d}_{op_name}"
-        _save(out_dir / "images" / f"{stem}.jpg", image, final_quality)
+        _save(out_dir / "images" / f"{stem}{ext}", image, final_quality)
         _save(out_dir / "masks" / f"{stem}.png", mask)
-        rows.append({"image": f"images/{stem}.jpg", "mask": f"masks/{stem}.png", "group_id": group_id,
-                     "label": int(op_name != "orig"), "tamper_type": op_name, "lang": lang, "doc_type": doc_type})
+        rows.append({"image": f"images/{stem}{ext}", "mask": f"masks/{stem}.png", "group_id": group_id,
+                     "label": int(op_name != "orig"), "tamper_type": op_name, "lang": lang, "doc_type": doc_type,
+                     "acquisition": "digital" if digital else "scan", "channel": channel["name"]})
     return rows
 
 
 def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, seed: int = 42,
-                     tr_ratio: float = 0.6) -> Path:
+                     tr_ratio: float = 0.6, digital_ratio: float = 0.0) -> Path:
     """Sentetik veri kümesini üretir ve ``metadata.csv`` yolunu döndürür."""
     out_dir = Path(out_dir)
     (out_dir / "images").mkdir(parents=True, exist_ok=True)
@@ -686,10 +753,11 @@ def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, se
     meta_path = out_dir / "metadata.csv"
     start = time.time()
     with open(meta_path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["image", "mask", "group_id", "label", "tamper_type", "lang", "doc_type"])
+        writer = csv.DictWriter(fh, fieldnames=["image", "mask", "group_id", "label", "tamper_type", "lang", "doc_type",
+                                                "acquisition", "channel"])
         writer.writeheader()
         for i in range(num_docs):
-            for row in generate_group(f"syn{i:06d}", rng, fonts, out_dir, n_variants, tr_ratio):
+            for row in generate_group(f"syn{i:06d}", rng, fonts, out_dir, n_variants, tr_ratio, digital_ratio):
                 writer.writerow(row)
             if (i + 1) % 100 == 0 or i + 1 == num_docs:
                 elapsed = time.time() - start
@@ -708,6 +776,9 @@ def main() -> None:
                         help="Hedef toplam görüntü sayısı (ör. 5000-10000); verilirse --num-docs bundan hesaplanır")
     parser.add_argument("--variants", type=int, default=3, help="Grup başına sahte varyant sayısı")
     parser.add_argument("--tr-ratio", type=float, default=0.6, help="Türkçe belge oranı")
+    parser.add_argument("--digital-ratio", type=float, default=0.0,
+                        help="Dijital doğmuş (PDF/ekran görüntüsü) belge oranı: 0 = hepsi taranmış (eski davranış), "
+                             "1 = hepsi dijital")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--overwrite", action="store_true", help="Hedef klasördeki mevcut veri setinin üzerine yaz")
     args = parser.parse_args()
@@ -717,7 +788,7 @@ def main() -> None:
         parser.error(f"{args.out} zaten bir veri seti içeriyor; üzerine yazmak için --overwrite verin "
                      "ya da farklı bir --out seçin.")
     print(f"{args.num_docs} belge × {args.variants + 1} ≈ {args.num_docs * (args.variants + 1)} görüntü → {args.out}")
-    path = generate_dataset(args.out, args.num_docs, args.variants, args.seed, args.tr_ratio)
+    path = generate_dataset(args.out, args.num_docs, args.variants, args.seed, args.tr_ratio, args.digital_ratio)
     print(f"Tamamlandı: {path}")
 
 
