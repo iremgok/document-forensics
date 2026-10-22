@@ -14,7 +14,8 @@ Değerlendirme kümesi (modelin eğitimde görmediği görseller):
 
 Çıktılar (``--out``, varsayılan ``results/stageB``):
   * ``per_image.csv``      — görsel başına skorlar, GT istatistikleri, süre, JPEG kalitesi.
-  * ``pixel_counts.npz``   — görsel × eşik ızgarası için piksel TP/FP/FN/TN sayıları.
+  * ``pixel_counts.npz``   — görsel × eşik ızgarası için piksel TP/FP/FN/TN sayıları ve eşiği geçen
+    en büyük bağlantılı bölgenin sayfa oranı (``max_region``; ``app.is_forged`` piksel koşulu için).
   * ``pixel_samples.npz``  — görsel başına düzgün rastgele piksel örneklemi (ROC/PR için).
   * ``robustness.csv``     — JPEG kalite faktörüne göre yeniden sıkıştırılmış alt kümede sonuçlar.
   * ``meta.json``          — checkpoint, sıcaklık, eşik ızgarası, örneklem boyutları.
@@ -40,7 +41,7 @@ import pandas as pd
 import torch
 from PIL import Image
 
-from predict import load_calibration, predict_raw
+from predict import largest_region_fraction, load_calibration, predict_raw
 from src.dataset import read_image_rgb, read_mask
 from src.models import load_model
 
@@ -153,6 +154,11 @@ def threshold_counts(prob: np.ndarray, gt: np.ndarray) -> np.ndarray:
     return out
 
 
+def region_fractions(prob: np.ndarray) -> np.ndarray:
+    """(len(THRESHOLDS),) — her eşikte eşiği geçen en büyük bağlantılı bölgenin sayfa oranı."""
+    return np.array([largest_region_fraction(prob, t) for t in THRESHOLDS], dtype=np.float32)
+
+
 def region_count(gt: np.ndarray) -> int:
     n, _ = cv2.connectedComponents(gt.astype(np.uint8))
     return int(n - 1)
@@ -187,7 +193,7 @@ def main() -> None:
     logger.info("Değerlendirme kümesi: %s", frame.groupby(["subset", "label"]).size().to_dict())
     rng = np.random.default_rng(args.seed)
 
-    records, counts, samples_p, samples_y, samples_img = [], [], [], [], []
+    records, counts, regions, samples_p, samples_y, samples_img = [], [], [], [], []
     for idx, row in enumerate(frame.itertuples()):
         data = Path(row.image_path).read_bytes()
         image = read_image_rgb(row.image_path)
@@ -200,6 +206,7 @@ def main() -> None:
 
         c = threshold_counts(prob, gt)
         counts.append(c)
+        regions.append(region_fractions(prob))
         k = min(PIXEL_SAMPLES_PER_IMAGE, prob.size)
         flat = rng.choice(prob.size, size=k, replace=False)
         samples_p.append(prob.ravel()[flat].astype(np.float16))
@@ -219,7 +226,8 @@ def main() -> None:
 
     per_image = pd.DataFrame(records)
     per_image.to_csv(out / "per_image.csv", index=False)
-    np.savez_compressed(out / "pixel_counts.npz", counts=np.stack(counts), thresholds=THRESHOLDS)
+    np.savez_compressed(out / "pixel_counts.npz", counts=np.stack(counts), max_region=np.stack(regions),
+                        thresholds=THRESHOLDS)
     np.savez_compressed(out / "pixel_samples.npz", prob=np.concatenate(samples_p), label=np.concatenate(samples_y),
                         image=np.concatenate(samples_img))
 

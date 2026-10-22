@@ -50,6 +50,7 @@ CALIBRATION_PATHS = (Path("checkpoints/calibration.json"), Path("checkpoints/syn
 DEFAULT_CALIBRATION = {"temperature": 6.389, "optimal_threshold": 0.35}
 CLEAN_PIXEL_LIMIT = 0.05  # Bu değerin altındaki maks. piksel olasılığı "sahte bölge yok" sayılır
 DOC_WEIGHT = 0.7          # Temiz haritada belge skorunun ağırlığı (kalanı maks. piksel olasılığı)
+MIN_REGION_FRACTION = 0.0005  # Piksel koşulu için asgari bağlantılı bölge alanı (sayfanın %0.05'i)
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,6 +177,16 @@ def fuse_doc_score(doc_prob: float, max_pixel_prob: float) -> float:
     if max_pixel_prob < CLEAN_PIXEL_LIMIT:
         return DOC_WEIGHT * doc_prob + (1.0 - DOC_WEIGHT) * max_pixel_prob
     return doc_prob
+
+
+def largest_region_fraction(prob_map: np.ndarray, threshold: float) -> float:
+    """Eşiği geçen en büyük bağlantılı bölgenin sayfa alanına oranı (bölge yoksa 0).
+
+    Piksel karar koşulu ``largest_region_fraction(...) >= MIN_REGION_FRACTION`` şeklindedir; böylece
+    dijital belgelerdeki kenar yumuşatma (anti-aliasing) kaynaklı tekil pikseller yanlış alarm üretmez.
+    """
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats((prob_map >= threshold).astype(np.uint8))
+    return float(stats[1:, cv2.CC_STAT_AREA].max()) / prob_map.size if num_labels > 1 else 0.0
 
 
 def make_overlay(image: np.ndarray, mask_resized: np.ndarray) -> np.ndarray:

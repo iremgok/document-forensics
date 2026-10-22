@@ -299,21 +299,23 @@ Kaynak: [app.py](../app.py) `is_forged`; [src/dashboard.py](../src/dashboard.py)
 uygular.
 
 ```python
-hybrid_condition = doc_prob >= threshold and max_pixel_prob >= CLEAN_PIXEL_LIMIT   # Şart 1
-pixel_condition  = max_pixel_prob >= threshold                                     # Şart 2
+hybrid_condition = doc_prob >= threshold and prob_map.max() >= CLEAN_PIXEL_LIMIT     # Şart 1
+num_labels, _, stats, _ = cv2.connectedComponentsWithStats((prob_map >= threshold).astype(np.uint8))
+min_area = MIN_REGION_FRACTION * prob_map.size                                     # sayfanın %0.05'i
+pixel_condition = (stats[1:, cv2.CC_STAT_AREA] >= min_area).any() if num_labels > 1 else False  # Şart 2
 return hybrid_condition or pixel_condition
 ```
 
 $$
 \text{SAHTE} \iff \underbrace{\big(\text{doc\_score} \geq \tau \;\wedge\; p_{\max}^{\text{pix}} \geq 0.05\big)}_{\text{Şart 1: Hibrit}}
 \;\vee\;
-\underbrace{\big(p_{\max}^{\text{pix}} \geq \tau\big)}_{\text{Şart 2: Doğrudan piksel}}
+\underbrace{\big(\max_k \lvert R_k^{\tau} \rvert \geq 0.0005 \cdot N\big)}_{\text{Şart 2: Bölge alanı}}
 $$
 
 | Şart | Ne zaman tetiklenir? | Neyi engeller / neyi yakalar? |
 |---|---|---|
 | **1 — Hibrit** | Belge skoru eşiği geçer **ve** haritada en az hafif bir iz (≥ %5) vardır | Sınıflandırma kafasının "boş harita + yüksek skor" yanlış alarmlarını **engeller**; belge skoru, zayıf ama yaygın piksel izlerini kanıt olarak kullanır |
-| **2 — Doğrudan piksel** | Herhangi bir pikselin olasılığı eşiği geçer | Belge skoru düşük kalsa bile **belirgin yerel tahrifatı kaçırmaz** (ör. tek bir rakamın değiştirilmesi) |
+| **2 — Bölge alanı** | Eşiği geçen bağlantılı bir bölge sayfanın en az %0.05'i kadardır | Belge skoru düşük kalsa bile **belirgin yerel tahrifatı kaçırmaz** (ör. tek bir rakamın değiştirilmesi); dijital belgelerde kenar yumuşatma (anti-aliasing) kaynaklı tekil piksellerin yanlış alarmını **engeller** |
 
 **Önemli gözlem:** $p_{\max}^{\text{pix}} < 0.05$ ise Şart 1 tanım gereği yanlış, Şart 2 de ($\tau > 0.05$
 olduğundan) yanlıştır. Yani **temiz haritalı bir belge, belge skoru ne olursa olsun asla "sahte" olarak

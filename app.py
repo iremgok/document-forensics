@@ -38,7 +38,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, load_calibration, make_overlay, predict
+from predict import (CLEAN_PIXEL_LIMIT, MIN_REGION_FRACTION, fuse_doc_score, largest_region_fraction,
+                     load_calibration, make_overlay, predict)
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 from src.runtime import cuda_available, easyocr_available, ensure_weights
 
@@ -120,18 +121,19 @@ def overlay_with_contours(image: np.ndarray, prob_map: np.ndarray, threshold: fl
     return out
 
 
-def is_forged(doc_prob: float, max_pixel_prob: float, threshold: float) -> bool:
+def is_forged(doc_prob: float, prob_map: np.ndarray, threshold: float) -> bool:
     """
     Sahtecilik kararı — iki koşuldan biri yeterlidir:
 
     * **Hibrit:** belge skoru eşiği geçer VE piksel haritasında en az hafif bir iz vardır
       (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen temizken
       yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
-    * **Piksel:** maks. piksel olasılığı doğrudan eşiği geçer (belge skoru düşük kalsa bile);
-      belirgin yerel tahrifat izleri kaçırılmaz.
+    * **Piksel:** eşiği geçen bağlantılı bir bölgenin alanı sayfanın en az ``MIN_REGION_FRACTION``
+      kadarıdır (belge skoru düşük kalsa bile). Dijital belgelerdeki kenar yumuşatma (anti-aliasing)
+      kaynaklı tekil piksellerin yanlış alarm üretmesi böylece engellenir.
     """
-    hybrid_condition = doc_prob >= threshold and max_pixel_prob >= CLEAN_PIXEL_LIMIT
-    pixel_condition = max_pixel_prob >= threshold
+    hybrid_condition = doc_prob >= threshold and float(prob_map.max()) >= CLEAN_PIXEL_LIMIT
+    pixel_condition = largest_region_fraction(prob_map, threshold) >= MIN_REGION_FRACTION
     return hybrid_condition or pixel_condition
 
 
@@ -258,7 +260,7 @@ def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
     m2.metric("Maksimum Piksel Olasılığı", f"{max_pixel:.3f}")
     m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
 
-    if is_forged(doc_prob, max_pixel, threshold):
+    if is_forged(doc_prob, prob_map, threshold):
         st.error("⚠️ Belgede manipülasyon/sahtecilik tespiti yapıldı!")
     else:
         st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")

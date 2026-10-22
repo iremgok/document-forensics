@@ -24,7 +24,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT
+from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT, MIN_REGION_FRACTION
 from src.metrics import expected_calibration_error, fit_temperature, roc_auc, sigmoid
 
 RESULTS_DIR = Path("results/stageB")
@@ -63,6 +63,8 @@ def load_results(directory: str, stamp: float) -> Optional[dict]:
     out = {
         "per_image": pd.read_csv(d / "per_image.csv"),
         "counts": counts["counts"], "thresholds": counts["thresholds"],
+        # Eski çıktılarda yok: ``decisions`` bu durumda maks. piksel kuralına düşer
+        "max_region": counts["max_region"] if "max_region" in counts.files else None,
         "px_prob": samples["prob"].astype(np.float32), "px_label": samples["label"], "px_image": samples["image"],
         "meta": json.loads((d / "meta.json").read_text(encoding="utf-8")),
         "robust": pd.read_csv(d / "robustness.csv") if (d / "robustness.csv").exists() else None,
@@ -97,10 +99,21 @@ def doc_scores(df: pd.DataFrame, temperature: float) -> pd.Series:
     return pd.Series(fused, index=df.index)
 
 
-def decisions(score: pd.Series, max_pixel: pd.Series, threshold: float) -> pd.Series:
-    """``app.is_forged`` kuralının vektörel hâli."""
+def region_at(res: dict, sel: np.ndarray, ti: int) -> Optional[np.ndarray]:
+    """Seçili görsellerin ``thresholds[ti]`` eşiğindeki en büyük bölge oranı (eski çıktılarda None)."""
+    return None if res["max_region"] is None else res["max_region"][sel, ti]
+
+
+def decisions(score: pd.Series, max_pixel: pd.Series, region: Optional[np.ndarray], threshold: float) -> pd.Series:
+    """``app.is_forged`` kuralının vektörel hâli.
+
+    ``region``: eşiği geçen en büyük bağlantılı bölgenin sayfa oranı (``benchmark.py`` → ``max_region``).
+    Eşik ızgarası 0.05 adımlıdır; ızgara dışı eşiklerde en yakın ızgara eşiğinin bölge oranı kullanılır.
+    ``None`` ise (eski çıktılar) piksel koşulu eski ``max_pixel >= threshold`` kuralına düşer.
+    """
     hybrid = (score >= threshold) & (max_pixel >= CLEAN_PIXEL_LIMIT)
-    return hybrid | (max_pixel >= threshold)
+    pixel = max_pixel >= threshold if region is None else np.asarray(region) >= MIN_REGION_FRACTION
+    return hybrid | pixel
 
 
 def f1_iou(tp, fp, fn):
@@ -209,8 +222,8 @@ def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold:
     counts = res["counts"][sel].sum(axis=0)  # (T, 4)
     pf1, piou = f1_iou(counts[:, 0], counts[:, 1], counts[:, 2])
     doc_f1 = []
-    for t in thr:
-        pred = decisions(df["doc_score"], df["max_pixel"], t).to_numpy()
+    for i, t in enumerate(thr):
+        pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, i), t).to_numpy()
         tp, fp, fn = (pred & (y == 1)).sum(), (pred & (y == 0)).sum(), (~pred & (y == 1)).sum()
         doc_f1.append(f1_iou(tp, fp, fn)[0])
     fig = go.Figure()
@@ -274,7 +287,8 @@ def section_matrices(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: fl
     c1, c2 = st.columns(2)
 
     # 5a. Belge düzeyi karmaşıklık matrisi -------------------------------------------------
-    pred = decisions(df["doc_score"], df["max_pixel"], threshold).to_numpy()
+    ti = int(np.argmin(np.abs(res["thresholds"] - threshold)))
+    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), threshold).to_numpy()
     cm = np.array([[((y == a) & (pred == b)).sum() for b in (0, 1)] for a in (0, 1)])
     pct = cm / np.maximum(cm.sum(axis=1, keepdims=True), 1)
     text = np.array([[f"{cm[i, j]}<br>(%{pct[i, j] * 100:.0f})" for j in range(2)] for i in range(2)])
@@ -283,7 +297,6 @@ def section_matrices(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: fl
                        f"5a · Belge düzeyi karmaşıklık matrisi (karar kuralı, eşik {threshold:.2f})", SEQUENTIAL, 0, 1))
 
     # 5b. Piksel düzeyi --------------------------------------------------------------------
-    ti = int(np.argmin(np.abs(res["thresholds"] - threshold)))
     tp, fp, fn, tn = res["counts"][sel, ti].sum(axis=0)
     cm = np.array([[tn, fp], [fn, tp]], dtype=float)
     pct = cm / np.maximum(cm.sum(axis=1, keepdims=True), 1)
@@ -475,6 +488,10 @@ def render_dashboard(threshold: float, temperature: float, ckpt_paths: tuple[str
     st.caption(f"Kaynak: `{RESULTS_DIR.as_posix()}` · {meta['created']} · checkpoint `{meta['checkpoint']}` · "
                f"mod `{meta['mode']}` · piksel olasılıkları T={meta['temperature']:.3f} ile üretildi. "
                "Eşik ve sıcaklık yan paneldeki değerlerden alınır.")
+    if res["max_region"] is None:
+        st.warning("Bu `benchmark.py` çıktısında bölge alanı (`max_region`) yok; belge kararları eski "
+                   "`maks. piksel ≥ eşik` kuralıyla hesaplanıyor ve arayüzdeki karardan farklı olabilir. "
+                   "Güncel kural için `python benchmark.py` komutunu yeniden çalıştırın.")
 
     subsets = st.multiselect("Değerlendirme alt kümeleri", list(df["subset_name"].unique()),
                              default=list(df["subset_name"].unique()))
@@ -491,7 +508,7 @@ def render_dashboard(threshold: float, temperature: float, ckpt_paths: tuple[str
 
     # Özet kartları
     y = df["label"].to_numpy()
-    pred = decisions(df["doc_score"], df["max_pixel"], threshold).to_numpy()
+    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), threshold).to_numpy()
     pf1, piou = f1_iou(tp.sum(), fp.sum(), fn.sum())
     ece, _ = expected_calibration_error(sigmoid(df["doc_logit"].to_numpy() / temperature), y, n_bins=10)
     k = st.columns(5)
