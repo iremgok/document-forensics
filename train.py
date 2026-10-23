@@ -23,6 +23,13 @@ Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
     Türkçe sentetik belgelerden oluşan validasyon kümesiyle (``--val-lang tr``) yapılır;
     böylece DocTamper ağırlıklı genel val skoru seçimi yönlendirmez. Düşük lr, Stage A/B'de
     öğrenilen DocTamper özniteliklerinin unutulmasını sınırlar.
+  * ``stageE``: Yanlış alarm düzeltmesi. ``checkpoints/base_doctamper.pth`` (Stage A) yüklenir
+    (Stage C/D'nin "alan konumu = sahte" ezberi taşınmaz); düzenleme izli sentetik v4 +
+    gerçek orijinal belgeler (``data/7_real_originals``) ile dengeli örneklemeyle eğitilir.
+
+Sınıf dengesi: sentetik veri 1 orijinal : 3 sahte olduğundan eğitim varsayılan olarak
+``WeightedRandomSampler`` ile orijinal/sahte 50/50 örneklenir (``--no-balance`` ile kapatılır).
+Dengesiz örneklemede belge kafası "her şey sahte" önceline kayar.
 
 Tüm aşamalarda eğitim görüntüleri ``--jpeg-aug-p`` (varsayılan 0.5) olasılıkla Q ∈ [50, 100]
 JPEG sıkıştırmasından geçer (``src/dataset.py::build_transforms``).
@@ -38,6 +45,7 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageB
     python train.py --stage stageC                       # Stage B → TR sentetik ince ayar
     python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual.pth
+    python train.py --stage stageE                       # Stage A → izli sentetik v4 + gerçek orijinaller
 """
 
 from __future__ import annotations
@@ -55,10 +63,10 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, RandomSampler, WeightedRandomSampler
 
-from src.dataset import (ForgeryDataset, assign_splits, build_manifest, build_transforms, close_lmdb_envs,
-                         worker_init_fn)
+from src.dataset import (ORIGINAL_ONLY_SOURCES, SOURCE_DIRS, ForgeryDataset, assign_splits, build_manifest,
+                         build_transforms, close_lmdb_envs, worker_init_fn)
 from src.losses import ForensicLoss
 from src.metrics import PixelMetrics, image_level_metrics
 from src.models import DualStreamForensicNet, save_checkpoint, sliding_window_predict
@@ -74,6 +82,8 @@ STAGE_PRESETS: dict[str, dict[str, Any]] = {
     "stageB": {"sources": ["synthetic", "sroie2019"], "lr": 1e-5, "init": "stageA_best.pth"},
     "stageC": {"sources": ["synthetic"], "lr": 1e-5, "weight_decay": 1e-4, "epochs": 12,
                "init": "checkpoints/finetuned_multilingual.pth", "val_lang": "tr", "run_dir": "checkpoints/stageC"},
+    "stageE": {"sources": ["synthetic", "real_originals"], "lr": 1e-4, "weight_decay": 1e-4, "epochs": 15,
+               "init": "checkpoints/base_doctamper.pth", "val_lang": "tr", "run_dir": "checkpoints/stageE"},
 }
 DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None, "epochs": 50,
                             "weight_decay": 1e-4, "val_lang": None}
@@ -87,7 +97,7 @@ def parse_args() -> argparse.Namespace:
                         "stageB = stageA_best.pth'den sentetik + SROIE ince ayar (lr=1e-5), "
                         "stageC = Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi")
     p.add_argument("--sources", nargs="+", default=None,
-                   choices=["synthetic", "doctamper", "aiforgedoc", "sroie2019"],
+                   choices=sorted(SOURCE_DIRS),
                    help="Eğitim/val'de kullanılacak kaynaklar; diğerleri yalnızca test/OOD olur. "
                         "Varsayılan: synthetic (veya --stage ön ayarı).")
     p.add_argument("--run-dir", default=None,
@@ -109,6 +119,10 @@ def parse_args() -> argparse.Namespace:
                         "(stageC: tr)")
     p.add_argument("--jpeg-aug-p", type=float, default=0.5,
                    help="Eğitimde Q∈[50,100] JPEG sıkıştırma artırmasının olasılığı (0 = kapalı)")
+    p.add_argument("--crop-nonempty-p", type=float, default=0.5,
+                   help="Sahte belgede kırpmanın sahte bölgeyi içerme olasılığı (kalanı rastgele kırpma)")
+    p.add_argument("--no-balance", action="store_true",
+                   help="Orijinal/sahte 50/50 dengeli örneklemeyi kapat (veri setindeki oranla örnekle)")
     p.add_argument("--samples-per-epoch", type=int, default=20000,
                    help="Epoch başına rastgele örneklenen eğitim görüntüsü (her epoch yeni örneklem); "
                         "0 = tüm eğitim kümesi")
@@ -340,9 +354,11 @@ def main() -> None:
     if args.val_lang:
         # Stage C: model seçimi yalnızca hedef dildeki sentetik val belgeleriyle (val_tr).
         # Bölümleme değişmez; diğer val satırları yalnızca seçime katılmaz (eğitime de girmez).
+        # Gerçek orijinal kaynaklar dil etiketi taşımaz ama yanlış alarm ölçümü için val'de kalır.
         lang = val_df["lang"] if "lang" in val_df else pd.Series(index=val_df.index, dtype=object)
-        keep = (val_df["source"] == "synthetic") & (lang == args.val_lang)
-        logger.info("Validasyon yalnızca '%s' dilindeki sentetik belgelerle: %d / %d görüntü (val_%s).",
+        keep = (((val_df["source"] == "synthetic") & (lang == args.val_lang))
+                | val_df["source"].isin(ORIGINAL_ONLY_SOURCES))
+        logger.info("Validasyon '%s' dilindeki sentetik + gerçek orijinal belgelerle: %d / %d görüntü (val_%s).",
                     args.val_lang, int(keep.sum()), len(val_df), args.val_lang)
         val_df = val_df[keep]
         val_df.to_csv(run_dir / f"val_{args.val_lang}.csv", index=False)
@@ -355,10 +371,19 @@ def main() -> None:
         # Sabit (seed'li) alt küme: epoch'lar arası metrikler karşılaştırılabilir kalır.
         val_df = val_df.sample(n=args.val_samples, random_state=args.seed)
         logger.info("Validasyon her epoch %d görüntülük sabit alt kümeyle yapılacak.", len(val_df))
-    train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size, args.jpeg_aug_p), args.max_side)
+    train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size, args.jpeg_aug_p, args.crop_nonempty_p),
+                              args.max_side)
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
     sampler = None
-    if 0 < args.samples_per_epoch < len(train_ds):
+    labels = train_ds.frame["label"].astype(int)
+    if not args.no_balance and labels.nunique() == 2:
+        # Her sınıf toplam ağırlığın yarısını alır → epoch'ta orijinal/sahte ≈ 50/50 (yerine koyarak).
+        weights = labels.map(0.5 / labels.value_counts()).to_numpy()
+        n_samples = args.samples_per_epoch if args.samples_per_epoch > 0 else len(train_ds)
+        sampler = WeightedRandomSampler(torch.as_tensor(weights, dtype=torch.double), n_samples, replacement=True)
+        logger.info("Dengeli örnekleme: epoch başına %d görüntü, orijinal/sahte ≈ 50/50 (veri setinde %d / %d).",
+                    n_samples, int((labels == 0).sum()), int((labels == 1).sum()))
+    elif 0 < args.samples_per_epoch < len(train_ds):
         # Her epoch eğitim kümesinden yinelemesiz yeni bir rastgele örneklem çekilir.
         sampler = RandomSampler(train_ds, replacement=False, num_samples=args.samples_per_epoch)
         logger.info("Epoch başına %d / %d eğitim görüntüsü örneklenecek.", args.samples_per_epoch, len(train_ds))
@@ -398,7 +423,8 @@ def main() -> None:
     tracker = MetricLogger(run_dir / "tensorboard", history_path=run_dir / "history.csv")
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
                               "sources": args.sources, "seed": args.seed, "stage": args.stage,
-                              "val_lang": args.val_lang, "jpeg_aug_p": args.jpeg_aug_p}
+                              "val_lang": args.val_lang, "jpeg_aug_p": args.jpeg_aug_p,
+                              "crop_nonempty_p": args.crop_nonempty_p, "balance": not args.no_balance}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     start_epoch = 1

@@ -105,7 +105,7 @@ def region_at(res: dict, sel: np.ndarray, ti: int) -> Optional[np.ndarray]:
 
 
 def decisions(score: pd.Series, max_pixel: pd.Series, region: Optional[np.ndarray], threshold: float) -> pd.Series:
-    """``app.is_forged`` kuralının vektörel hâli.
+    """``predict.is_forged`` kuralının vektörel hâli.
 
     ``region``: eşiği geçen en büyük bağlantılı bölgenin sayfa oranı (``benchmark.py`` → ``max_region``).
     Eşik ızgarası 0.05 adımlıdır; ızgara dışı eşiklerde en yakın ızgara eşiğinin bölge oranı kullanılır.

@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="DualStreamForensicNet ile belge sahtecilik tahmini")
     p.add_argument("--image", default=None,
                    help=f"Girdi belge görseli (varsayılan: {' / '.join(DEFAULT_IMAGES)} içinden ilk bulunan)")
-    p.add_argument("--checkpoint", default="checkpoints/finetuned_multilingual.pth", help="Model ağırlıkları")
+    p.add_argument("--checkpoint", default="checkpoints/stageD/best.pth", help="Model ağırlıkları")
     p.add_argument("--mode", choices=("sliding", "resize"), default="sliding",
                    help="sliding: orijinal çözünürlükte kayan pencere; resize: 512x512 tek geçiş")
     p.add_argument("--output", default="prediction_result.png", help="Kaydedilecek figür")
@@ -92,8 +92,12 @@ def resolve_image_path(path: str | Path | None) -> Path:
     raise FileNotFoundError(f"Görsel bulunamadı: {path}")
 
 
-def load_calibration(explicit: str | None = None) -> tuple[float, float, Path]:
+def load_calibration(explicit: str | None = None, checkpoint: str | Path | None = None
+                     ) -> tuple[float, float, Path]:
     """Sıcaklık ve optimal eşiği okur; dosya yoksa varsayılanlarla oluşturur.
+
+    ``checkpoint`` verilirse önce onun klasöründeki ``calibration.json`` aranır (``evaluate.py``
+    eşiği her modelin kendi val kümesinde seçip oraya yazar); yoksa genel dosyalara düşülür.
 
     Returns:
         (temperature, threshold, okunan dosya)
@@ -103,7 +107,8 @@ def load_calibration(explicit: str | None = None) -> tuple[float, float, Path]:
         if not path.exists():
             raise FileNotFoundError(f"Kalibrasyon dosyası bulunamadı: {path}")
     else:
-        path = next((p for p in CALIBRATION_PATHS if p.exists()), None)
+        own = (Path(checkpoint).parent / "calibration.json",) if checkpoint else ()
+        path = next((p for p in own + CALIBRATION_PATHS if p.exists()), None)
         if path is None:
             path = CALIBRATION_PATHS[0]
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,6 +194,32 @@ def largest_region_fraction(prob_map: np.ndarray, threshold: float) -> float:
     return float(stats[1:, cv2.CC_STAT_AREA].max()) / prob_map.size if num_labels > 1 else 0.0
 
 
+def decide_forged(doc_prob: float, max_pixel: float, region_fraction: float, threshold: float) -> bool:
+    """``is_forged`` kuralı, önceden hesaplanmış özetlerle (eşik taraması için; bkz. ``evaluate.py``).
+
+    ``region_fraction`` = ``largest_region_fraction(prob_map, threshold)``.
+    """
+    hybrid_condition = doc_prob >= threshold and max_pixel >= CLEAN_PIXEL_LIMIT
+    pixel_condition = region_fraction >= MIN_REGION_FRACTION
+    return hybrid_condition or pixel_condition
+
+
+def is_forged(doc_prob: float, prob_map: np.ndarray, threshold: float) -> bool:
+    """
+    Sahtecilik kararı — iki koşuldan biri yeterlidir:
+
+    * **Hibrit:** belge skoru eşiği geçer VE piksel haritasında en az hafif bir iz vardır
+      (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen temizken
+      yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
+    * **Piksel:** eşiği geçen bağlantılı bir bölgenin alanı sayfanın en az ``MIN_REGION_FRACTION``
+      kadarıdır (belge skoru düşük kalsa bile). Dijital belgelerdeki kenar yumuşatma (anti-aliasing)
+      kaynaklı tekil piksellerin yanlış alarm üretmesi böylece engellenir.
+
+    Eşik, ``evaluate.py`` tarafından val kümesinde hedef yanlış alarm oranına göre seçilir.
+    """
+    return decide_forged(doc_prob, float(prob_map.max()), largest_region_fraction(prob_map, threshold), threshold)
+
+
 def make_overlay(image: np.ndarray, mask_resized: np.ndarray) -> np.ndarray:
     """%60 orijinal + %40 jet ısı haritası (RGB uint8)."""
     heatmap = cv2.applyColorMap(np.uint8(255 * mask_resized), cv2.COLORMAP_JET)
@@ -235,7 +266,7 @@ def main() -> None:
     logger.info("Model yüklendi: %s (epoch=%s, val/score=%.4f)", checkpoint, config.get("epoch"),
                 config.get("metrics", {}).get("val/score", float("nan")))
 
-    temperature, threshold, calib_path = load_calibration(args.calibration)
+    temperature, threshold, calib_path = load_calibration(args.calibration, checkpoint)
     if args.threshold is not None:
         threshold = args.threshold
     logger.info("Kalibrasyon: T=%.3f, eşik=%.2f (%s)", temperature, threshold, calib_path)
@@ -253,6 +284,8 @@ def main() -> None:
     save_figure(image, mask_resized, overlay, doc_prob, threshold, out_path)
     logger.info("Belge olasılığı=%.4f, maks piksel=%.4f, eşik üstü alan=%.2f%%",
                 doc_prob, mask_resized.max(), (mask_resized >= threshold).mean() * 100)
+    logger.info("Karar (eşik=%.2f): %s", threshold,
+                "SAHTE" if is_forged(doc_prob, mask_resized, threshold) else "ORİJİNAL")
     logger.info("Sonuç kaydedildi: %s", out_path.resolve())
 
 

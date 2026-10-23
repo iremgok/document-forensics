@@ -38,14 +38,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from predict import (CLEAN_PIXEL_LIMIT, MIN_REGION_FRACTION, fuse_doc_score, largest_region_fraction,
-                     load_calibration, make_overlay, predict)
+from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, is_forged, load_calibration, make_overlay, predict
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 from src.runtime import cuda_available, easyocr_available, ensure_weights
 
 CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
 PRESET_CHECKPOINTS = {
-    "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual (varsayılan)",
+    "checkpoints/stageE/best.pth": "Stage E — izli sentetik + gerçek orijinaller (dengeli)",
+    "checkpoints/stageD/best.pth": "Stage D — Türkçe sentetik v3 ince ayar",
+    "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual",
     "checkpoints/base_doctamper.pth": "Stage A — base_doctamper",
     "checkpoints/stageC/best.pth": "Stage C — Türkçe ince ayar (TR val ile seçilmiş)",
 }
@@ -64,7 +65,7 @@ def fetch_weights() -> dict[str, str]:
 
 
 def find_checkpoints() -> list[str]:
-    """Önce Stage B / Stage A / Stage C ağırlıkları, ardından ``checkpoints/`` ve ``runs/`` altındaki
+    """Önce Stage E / D / B / A / C ağırlıkları (varsa, bu sırayla), ardından ``checkpoints/`` ve ``runs/`` altındaki
     diğer boş olmayan .pth dosyaları (en yeni önce)."""
     presets = [p for p in PRESET_CHECKPOINTS if Path(p).is_file()]
     others = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
@@ -121,22 +122,6 @@ def overlay_with_contours(image: np.ndarray, prob_map: np.ndarray, threshold: fl
     return out
 
 
-def is_forged(doc_prob: float, prob_map: np.ndarray, threshold: float) -> bool:
-    """
-    Sahtecilik kararı — iki koşuldan biri yeterlidir:
-
-    * **Hibrit:** belge skoru eşiği geçer VE piksel haritasında en az hafif bir iz vardır
-      (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen temizken
-      yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
-    * **Piksel:** eşiği geçen bağlantılı bir bölgenin alanı sayfanın en az ``MIN_REGION_FRACTION``
-      kadarıdır (belge skoru düşük kalsa bile). Dijital belgelerdeki kenar yumuşatma (anti-aliasing)
-      kaynaklı tekil piksellerin yanlış alarm üretmesi böylece engellenir.
-    """
-    hybrid_condition = doc_prob >= threshold and float(prob_map.max()) >= CLEAN_PIXEL_LIMIT
-    pixel_condition = largest_region_fraction(prob_map, threshold) >= MIN_REGION_FRACTION
-    return hybrid_condition or pixel_condition
-
-
 def draw_findings(image: np.ndarray, report: ContentReport) -> np.ndarray:
     """Başarısız kuralların satır kutularını turuncu, başarılı olanları yeşil çerçeveler."""
     out = image.copy()
@@ -190,7 +175,7 @@ def sidebar() -> dict:
 
         st.subheader("🎚️ Kalibrasyon")
         try:
-            file_t, file_thr, calib_path = load_calibration()
+            file_t, file_thr, calib_path = load_calibration(checkpoint=ckpt)
             st.caption(f"Kaynak: `{calib_path.as_posix()}` (T={file_t:.3f}, eşik={file_thr:.2f})")
         except (OSError, ValueError) as exc:
             st.error(f"Kalibrasyon dosyası okunamadı: {exc}")

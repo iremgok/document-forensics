@@ -185,7 +185,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     model, config = load_model(args.checkpoint, args.device)
-    temperature, threshold, calib_path = load_calibration()
+    temperature, threshold, calib_path = load_calibration(checkpoint=args.checkpoint)
     logger.info("Model: %s | T=%.3f eşik=%.2f (%s) | mod=%s", args.checkpoint, temperature, threshold,
                 calib_path, args.mode)
 

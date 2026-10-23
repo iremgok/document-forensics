@@ -36,15 +36,21 @@ parametrelerle uygulanır (bkz. ``DIGITAL_CHANNELS``): kayıpsız PNG, yüksek k
 ekran görüntüsü (ölçekleme) veya WhatsApp (küçültme + JPEG). Böylece model "temiz zemin =
 sahte" ya da "JPEG = sahte" gibi kestirme ipuçları öğrenemez.
 
+Dijital belgede beyaz zemin beyazla boyanıp aynı fontla yazılınca sahte alan gerçek metinle
+piksel düzeyinde aynı olur (öğrenilemez etiket → model alan konumunu ezberler ve orijinallerde
+yanlış alarm verir). Bu yüzden dijital modda her sahte bölgeye ``add_edit_trace`` ile gerçekçi
+bir yerel iz eklenir (bkz. ``EDIT_TRACES``); seçilen iz ``metadata.csv``'de ``edit_trace`` sütunundadır.
+
 Kullanım:
     python -m src.generate_synthetic --out data/6_synthetic_digital --num-docs 1500 --digital-ratio 1.0
     python -m src.generate_synthetic --digital-ratio 0.5      # yarı taranmış, yarı dijital
+    python -m src.generate_synthetic --out data/6_synthetic_tr_en_v4 --num-images 12000 --digital-ratio 0.5
     python -m src.generate_synthetic                          # 2000 belge × 4 = ~8000 görüntü (Stage C)
     python -m src.generate_synthetic --num-images 10000       # hedef görüntü sayısından belge sayısı
     python -m src.generate_synthetic --out data/4_synthetic_tr_en --num-docs 1000 --variants 3 --overwrite
 
-Varsayılan çıktı ``data/5_synthetic_tr_en_v3`` klasörüdür; ``src/dataset.py`` bu klasörü
-``4_synthetic_tr_en``'den önce arar. Hedef klasörde ``metadata.csv`` varsa üretim ``--overwrite``
+Varsayılan çıktı ``data/6_synthetic_tr_en_v4`` klasörüdür (düzenleme izli dijital mod);
+``src/dataset.py`` bu klasörü ``5_synthetic_tr_en_v3`` ve ``4_synthetic_tr_en``'den önce arar. Hedef klasörde ``metadata.csv`` varsa üretim ``--overwrite``
 verilmeden başlamaz (önceki veri setinin yanlışlıkla ezilmesini önler).
 """
 
@@ -473,6 +479,47 @@ def apply_digital_channel(image: np.ndarray, mask: np.ndarray, channel: dict[str
 # Sahtecilik işlemleri
 # ---------------------------------------------------------------------------
 
+#: Dijital belgelerde sahte bölgeye uygulanan düzenleme izleri ve seçilme olasılıkları.
+EDIT_TRACES: dict[str, float] = {
+    "local_jpeg": 0.35,  # bölge başka bir kaynaktan (JPEG) gelmiş: kaydırılmış 8x8 ızgarayla çift sıkıştırma
+    "resample": 0.30,    # yapıştırılan metin ölçeklenmiş: farklı kenar yumuşatma (anti-aliasing)
+    "noise": 0.20,       # taranmış/fotoğraflanmış kaynaktan yama: düz zeminde sensör gürültüsü
+    "color": 0.15,       # yazı ve zemin renginde ±2-5 ton kayması (farklı renk profili / editör)
+}
+
+
+def add_edit_trace(image: np.ndarray, mask: np.ndarray, rng: random.Random) -> tuple[np.ndarray, str]:
+    """Dijital belgede sahte bölgeye gerçekçi bir düzenleme izi ekler (yalnızca ``mask > 0`` pikselleri).
+
+    Dijital doğmuş belgede ``rewrite_field`` beyaz zemini beyazla boyayıp aynı fontla yazdığında
+    sahte alan gerçek metinle piksel düzeyinde aynıdır: hiçbir görüntü modeli onu ayırt edemez ve
+    model "tutar/IBAN alanı = sahte" gibi bir konum ezberine yönelir (orijinallerde yanlış alarm).
+    Gerçek düzenleme araçları (görüntü editörüne yapıştırma, başka belgeden kopyalama, ekran
+    görüntüsü birleştirme) ise burada benzetilen yerel izlerden en az birini bırakır.
+    """
+    name = rng.choices(list(EDIT_TRACES), weights=list(EDIT_TRACES.values()))[0]
+    if name == "local_jpeg":
+        dy, dx = rng.randint(1, 7), rng.randint(1, 7)
+        padded = cv2.copyMakeBorder(image, dy, 0, dx, 0, cv2.BORDER_REPLICATE)
+        traced = jpeg_roundtrip(padded, rng.randint(55, 85))[dy:, dx:]
+    elif name == "resample":
+        h, w = image.shape[:2]
+        scale = rng.uniform(0.55, 0.85)
+        small = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+        traced = cv2.resize(small, (w, h), interpolation=rng.choice([cv2.INTER_LINEAR, cv2.INTER_CUBIC]))
+    elif name == "noise":
+        np_rng = np.random.default_rng(rng.randint(0, 2**31))
+        traced = image.astype(np.float32) + np_rng.normal(0, rng.uniform(1.5, 3.5), image.shape)
+    else:
+        shift = np.array([rng.choice([-1, 1]) * rng.randint(2, 5) for _ in range(3)], dtype=np.float32)
+        traced = image.astype(np.float32) + shift
+    traced = np.clip(traced, 0, 255).astype(np.uint8)
+    out = image.copy()
+    region = mask > 0
+    out[region] = traced[region]
+    return out, name
+
+
 def _expand(box: Box, pad: int, shape: tuple[int, ...]) -> Box:
     x0, y0, x1, y1 = box
     return max(0, x0 - pad), max(0, y0 - pad), min(shape[1], x1 + pad), min(shape[0], y1 + pad)
@@ -705,8 +752,8 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
     acquired = rendered.copy() if digital else simulate_acquisition(rendered, rng)
 
     rows = []
-    variants: list[tuple[str, np.ndarray, np.ndarray]] = [
-        ("orig", acquired, np.zeros(acquired.shape[:2], np.uint8))]
+    variants: list[tuple[str, np.ndarray, np.ndarray, str]] = [
+        ("orig", acquired, np.zeros(acquired.shape[:2], np.uint8), "")]
     ops = list(OPERATIONS)
     attempts = 0
     while len(variants) <= n_variants and attempts < n_variants * 6:
@@ -718,7 +765,11 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
         tampered = OPERATIONS[op_name](doc, acquired, mask, rng, fonts)
         if tampered is None or mask.max() == 0:
             continue
-        variants.append((op_name, tampered, mask))
+        trace = ""
+        if digital:
+            # Taranmış belgede düz boyama tarama gürültüsünü siler (iz zaten var); dijitalde yoksa eklenir.
+            tampered, trace = add_edit_trace(tampered, mask, rng)
+        variants.append((op_name, tampered, mask, trace))
 
     # Grup içindeki tüm varyantlar aynı son kanaldan / kaliteyle kaydedilir.
     if digital:
@@ -728,7 +779,7 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
         channel = {"name": "scan"}
         final_quality = rng.randint(75, 95)
     ext = ".jpg" if final_quality else ".png"
-    for idx, (op_name, image, mask) in enumerate(variants):
+    for idx, (op_name, image, mask, trace) in enumerate(variants):
         if digital:
             image, mask = apply_digital_channel(image, mask, channel)
         stem = f"{group_id}__{idx:02d}_{op_name}"
@@ -736,7 +787,8 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
         _save(out_dir / "masks" / f"{stem}.png", mask)
         rows.append({"image": f"images/{stem}{ext}", "mask": f"masks/{stem}.png", "group_id": group_id,
                      "label": int(op_name != "orig"), "tamper_type": op_name, "lang": lang, "doc_type": doc_type,
-                     "acquisition": "digital" if digital else "scan", "channel": channel["name"]})
+                     "acquisition": "digital" if digital else "scan", "channel": channel["name"],
+                     "edit_trace": trace})
     return rows
 
 
@@ -754,7 +806,7 @@ def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, se
     start = time.time()
     with open(meta_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=["image", "mask", "group_id", "label", "tamper_type", "lang", "doc_type",
-                                                "acquisition", "channel"])
+                                                "acquisition", "channel", "edit_trace"])
         writer.writeheader()
         for i in range(num_docs):
             for row in generate_group(f"syn{i:06d}", rng, fonts, out_dir, n_variants, tr_ratio, digital_ratio):
@@ -768,7 +820,7 @@ def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, se
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Türkçe/İngilizce sentetik sahte belge üretici")
-    parser.add_argument("--out", default="data/5_synthetic_tr_en_v3")
+    parser.add_argument("--out", default="data/6_synthetic_tr_en_v4")
     parser.add_argument("--num-docs", type=int, default=2000,
                         help="Şablon örneği (grup) sayısı; her grup 1 orijinal + --variants sahte görüntüdür "
                              "(varsayılan 2000 × 4 ≈ 8000 görüntü)")
@@ -776,9 +828,9 @@ def main() -> None:
                         help="Hedef toplam görüntü sayısı (ör. 5000-10000); verilirse --num-docs bundan hesaplanır")
     parser.add_argument("--variants", type=int, default=3, help="Grup başına sahte varyant sayısı")
     parser.add_argument("--tr-ratio", type=float, default=0.6, help="Türkçe belge oranı")
-    parser.add_argument("--digital-ratio", type=float, default=0.0,
-                        help="Dijital doğmuş (PDF/ekran görüntüsü) belge oranı: 0 = hepsi taranmış (eski davranış), "
-                             "1 = hepsi dijital")
+    parser.add_argument("--digital-ratio", type=float, default=0.5,
+                        help="Dijital doğmuş (PDF/ekran görüntüsü) belge oranı: 0 = hepsi taranmış, "
+                             "1 = hepsi dijital (varsayılan 0.5)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--overwrite", action="store_true", help="Hedef klasördeki mevcut veri setinin üzerine yaz")
     args = parser.parse_args()

@@ -46,9 +46,16 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     "doctamper": ("1_base_doctamper",),
     "aiforgedoc": ("2_finetune_aiforgedoc", "finetune_aiforgedoc"),
     "sroie2019": ("3_sroie2019",),
-    # v3 (Stage C, ~8000 görüntü) varsa önce o kullanılır; yoksa önceki sürüm.
-    "synthetic": ("5_synthetic_tr_en_v3", "4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
+    # v4 (düzenleme izli dijital mod) varsa önce o, sonra v3 (Stage C), sonra önceki sürüm kullanılır.
+    "synthetic": ("6_synthetic_tr_en_v4", "5_synthetic_tr_en_v3", "4_synthetic_tr_en", "synthetic_tr_en",
+                  "synthetic"),
+    # Gerçek, sahte OLMAYAN belgeler (taranmış/fotoğraflanmış/PDF'ten dışa aktarılmış dekont, fatura, fiş).
+    # Alt klasörler serbesttir; tüm görüntüler label=0 kabul edilir. Yanlış alarmı düşüren zor negatifler.
+    "real_originals": ("7_real_originals",),
 }
+
+#: Yalnızca orijinal (label=0) belgelerden oluşan kaynaklar.
+ORIGINAL_ONLY_SOURCES: tuple[str, ...] = ("sroie2019", "real_originals")
 
 #: DocTamper alt küme klasörleri (harf büyüklüğüne duyarsız eşleşir). Resmi dağıtımdaki
 #: ``DocTamperV1-*`` adları ``data_root`` altında doğrudan bulunursa kaynak kökü ``data_root`` olur.
@@ -413,15 +420,15 @@ def _manifest_doctamper(root: Path, for_training: bool, known_sets_only: bool = 
     return df[MANIFEST_COLUMNS]
 
 
-def _manifest_sroie(root: Path, for_training: bool = False) -> pd.DataFrame:
-    """SROIE2019 fişleri: tamamı orijinaldir (label=0)."""
+def _manifest_originals(root: Path, source: str, for_training: bool = False) -> pd.DataFrame:
+    """Yalnızca orijinal belgelerden oluşan kaynak (SROIE2019, gerçek orijinaller): tamamı label=0."""
     images = sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)
     return pd.DataFrame({
         "image_path": [str(p) for p in images],
         "mask_path": "",
         "label": 0,
-        "group_id": [f"sroie2019:{p.stem}" for p in images],
-        "source": "sroie2019",
+        "group_id": [f"{source}:{p.relative_to(root).with_suffix('').as_posix()}" for p in images],
+        "source": source,
         "fixed_split": "" if for_training else "ood",
     })
 
@@ -446,7 +453,7 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
             frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root,
                                         max_train_images=doctamper_max, seed=seed)
         else:
-            frame = _manifest_sroie(root, for_training)
+            frame = _manifest_originals(root, source, for_training)
         logger.info("%-11s %6d görüntü (%s)", source, len(frame), "eğitim" if for_training else "yalnız test/OOD")
         frames.append(frame)
     found = {f["source"].iloc[0] for f in frames if not f.empty}
@@ -540,11 +547,14 @@ def jpeg_compression(quality_low: int = 50, quality_high: int = 100, p: float = 
         return A.ImageCompression(quality_lower=quality_low, quality_upper=quality_high, p=p)
 
 
-def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5) -> Callable:
+def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5,
+                     nonempty_p: float = 0.5) -> Callable:
     """Albumentations dönüşüm hattı.
 
     Eğitimde ``jpeg_p`` olasılıkla Q ∈ [50, 100] JPEG sıkıştırması uygulanır (0 = kapalı).
-    Validasyon/test dönüşümleri değişmez.
+    ``nonempty_p`` olasılıkla kırpma sahte bölgeyi içerecek şekilde seçilir, kalanında rastgele
+    kırpılır. Yüksek değer (eski 0.7) sahte belgelerin temiz bölgelerini neredeyse hiç
+    göstermez; model "metin alanı = sahte" ezberine kayar. Validasyon/test dönüşümleri değişmez.
     """
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
@@ -556,8 +566,8 @@ def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5) -> 
     return A.Compose([
         A.PadIfNeeded(min_height=crop_size, min_width=crop_size, border_mode=cv2.BORDER_REFLECT_101),
         A.OneOf([
-            A.CropNonEmptyMaskIfExists(height=crop_size, width=crop_size, p=0.7),
-            A.RandomCrop(height=crop_size, width=crop_size, p=0.3),
+            A.CropNonEmptyMaskIfExists(height=crop_size, width=crop_size, p=nonempty_p),
+            A.RandomCrop(height=crop_size, width=crop_size, p=1.0 - nonempty_p),
         ], p=1.0),
         A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
         *jpeg,
