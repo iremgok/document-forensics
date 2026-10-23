@@ -21,9 +21,21 @@ ve sıcaklıkla birlikte ``<checkpoint klasörü>/calibration.json``'a yazılır
 Piksel olasılıkları uygulamadaki gibi sıcaklıkla ölçeklendiği için sıcaklık öğrenildikten sonra
 val kümesi o sıcaklıkla bir kez daha işlenir (T = 1 ise tekrar edilmez).
 
+Sahtecilik türüne göre kırılım
+------------------------------
+Her test/OOD kümesi için ``breakdown_<bölüm>_<kaynak>.csv`` yazılır: sahtecilik türü (dosya adındaki
+``__NN_<tür>`` ekinden; ``digit_change`` metadata'daki düzenleme kaydına göre 1/2+ rakam diye ayrılır),
+kurum (``real:<kurum>/...``), belge tipi, edinim ve iletim kanalı başına tespit oranı (TPR), yanlış
+alarm (FPR) ve AUC. Ayrıntılar, görüntü yolundaki veri seti klasörünün ``--data-root`` altındaki
+``metadata.csv``'sinden okunur (Kaggle'da üretilmiş tahminler yerelde de zenginleştirilebilir).
+
+``--breakdown-only`` modeli çalıştırmadan ``--out`` altındaki mevcut ``predictions_*.csv`` dosyalarından
+kırılımı üretir (sıcaklık ``summary.json``'dan okunur).
+
 Örnek:
     python evaluate.py --checkpoint checkpoints/run/best.pth --splits checkpoints/run/splits.csv
     python evaluate.py --checkpoint checkpoints/stageE/best.pth --splits checkpoints/stageE/splits.csv --target-fpr 0.02
+    python evaluate.py --breakdown-only --out results           # Kaggle sonuçlarından yerelde kırılım
 """
 
 from __future__ import annotations
@@ -31,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +53,7 @@ import torch
 from predict import decide_forged, fuse_doc_score, largest_region_fraction
 from src.dataset import ForgeryDataset, build_transforms
 from src.metrics import (PixelMetrics, expected_calibration_error, fit_temperature, image_level_metrics,
-                         sigmoid)
+                         roc_auc, sigmoid)
 from src.models import load_model, sliding_window_predict
 
 logger = logging.getLogger("evaluate")
@@ -48,11 +61,20 @@ logger = logging.getLogger("evaluate")
 #: Taranan karar eşikleri (uygulamadaki kaydırıcı aralığı, 0.01 adım).
 THRESHOLDS = np.round(np.arange(0.05, 0.951, 0.01), 2)
 
+#: ``generate_synthetic`` / ``forge_real`` dosya adı eki: ``..._02_digit_change.png`` → ``digit_change``.
+_TAMPER_RE = re.compile(r"__\d{2}_([A-Za-z_]+)\.\w+$")
+#: Kırılım boyutları (prediction tablosunda varsa): sütun → rapordaki ad.
+BREAKDOWN_DIMS = {"tamper_type": "sahtecilik_turu", "issuer": "kurum", "doc_type": "belge_tipi",
+                  "acquisition": "edinim", "channel": "kanal"}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sahtecilik modeli değerlendirmesi")
-    p.add_argument("--checkpoint", required=True)
-    p.add_argument("--splits", required=True, help="train.py tarafından yazılan splits.csv")
+    p.add_argument("--checkpoint", default=None, help="Model ağırlıkları (--breakdown-only dışında zorunlu)")
+    p.add_argument("--splits", default=None, help="train.py tarafından yazılan splits.csv (--breakdown-only dışında zorunlu)")
+    p.add_argument("--data-root", default="data", help="Kırılım ayrıntıları için metadata.csv'lerin aranacağı kök")
+    p.add_argument("--breakdown-only", action="store_true",
+                   help="Modeli çalıştırma; --out altındaki predictions_*.csv dosyalarından kırılım üret")
     p.add_argument("--sets", nargs="+", default=["test", "ood"], help="Değerlendirilecek bölümler")
     p.add_argument("--no-calibration", action="store_true", help="Val üzerinde sıcaklık ve eşik öğrenmeyi atla")
     p.add_argument("--target-fpr", type=float, default=0.05,
@@ -123,9 +145,133 @@ def select_threshold(pred: pd.DataFrame, temperature: float, target_fpr: float) 
     return {"threshold": float(best["threshold"]), "fpr": float(best["fpr"]), "tpr": float(best["tpr"])}
 
 
+# ---------------------------------------------------------------------------
+# Sahtecilik türüne göre kırılım
+# ---------------------------------------------------------------------------
+
+def _changed_digits(edits_json: str) -> int:
+    """``forge_real`` düzenleme kaydındaki değiştirilen rakam sayısı (eski/yeni metin karşılaştırması)."""
+    try:
+        edits = json.loads(edits_json) if edits_json else []
+    except (TypeError, ValueError):
+        return 0
+    return sum(sum(a != b for a, b in zip(e.get("old", ""), e.get("new", "")) if a.isdigit() or b.isdigit())
+               for e in edits)
+
+
+def enrich_predictions(pred: pd.DataFrame, data_root: str | Path) -> pd.DataFrame:
+    """Tahmin tablosuna kırılım sütunlarını ekler: sahtecilik türü, kurum ve (varsa) metadata ayrıntıları.
+
+    Metadata, görüntü yolundaki veri seti klasörünün adıyla ``data_root`` altında aranır; böylece
+    Kaggle yollarıyla yazılmış tahminler yerel veri setleriyle eşleşir.
+    """
+    out = pred.copy()
+    paths = out["image_path"].astype(str).str.replace("\\", "/", regex=False)
+    out["_dataset"] = paths.str.split("/").str[-3]
+    out["_name"] = paths.str.split("/").str[-1]
+    out["tamper_type"] = [m.group(1) if (m := _TAMPER_RE.search(p)) else ("orig" if int(l) == 0 else "bilinmiyor")
+                          for p, l in zip(paths, out["label"])]
+    group = out["group_id"].astype(str) if "group_id" in out else pd.Series("", index=out.index)
+    out["issuer"] = np.where(group.str.startswith("real:"), group.str[5:].str.split("/").str[0], None)
+
+    extra_cols = ("doc_type", "acquisition", "channel", "edits")
+    frames = []
+    for dataset in out["_dataset"].dropna().unique():
+        meta_path = Path(data_root) / dataset / "metadata.csv"
+        if not meta_path.is_file():
+            continue
+        meta = pd.read_csv(meta_path, keep_default_na=False)
+        meta["_name"] = meta["image"].astype(str).str.split("/").str[-1]
+        meta["_dataset"] = dataset
+        frames.append(meta[["_dataset", "_name", *[c for c in extra_cols if c in meta]]])
+    if frames:
+        meta = pd.concat(frames, ignore_index=True).drop_duplicates(["_dataset", "_name"])
+        out = out.drop(columns=[c for c in extra_cols if c in out]).merge(meta, on=["_dataset", "_name"], how="left")
+        if "edits" in out:
+            # Gerçek belgelerde rakam değişikliği tek/çok rakam diye ayrılır (tek rakam en zor durum).
+            digits = out["edits"].fillna("").map(_changed_digits)
+            is_digit = out["tamper_type"] == "digit_change"
+            out.loc[is_digit, "tamper_type"] = np.where(digits[is_digit] <= 1, "digit_change_1", "digit_change_2+")
+    real = out["issuer"].notna()
+    if "doc_type" in out:
+        out.loc[real, "doc_type"] = None  # Gerçek belgelerde doc_type = kurum; ayrı boyut olarak raporlanır.
+    return out.drop(columns=["_dataset", "_name", "edits"], errors="ignore")
+
+
+def breakdown(pred: pd.DataFrame, temperature: float) -> pd.DataFrame:
+    """Kırılım tablosu: her boyut değeri için örnek sayıları, tespit oranı, yanlış alarm ve AUC.
+
+    * ``sahtecilik_turu``: her tür, kümedeki **tüm** orijinallere karşı (AUC) ve kendi tespit oranıyla;
+      ``orig`` satırı kümenin yanlış alarm oranıdır.
+    * Diğer boyutlar (kurum, kanal ...): değer içindeki orijinal ve sahtelerle hesaplanır.
+
+    Karar sütunu ``forged_decision`` (seçilen eşikte ``predict.is_forged``) kullanılır.
+    """
+    labels = pred["label"].astype(int).to_numpy()
+    probs = sigmoid(pred["doc_logit"].to_numpy(float) / temperature)
+    decided = pred["forged_decision"].astype(int).to_numpy()
+    orig = labels == 0
+    rows = []
+    for col, dim in BREAKDOWN_DIMS.items():
+        if col not in pred or pred[col].isna().all():
+            continue
+        values = pred[col].fillna("").astype(str).to_numpy()
+        for value in sorted(set(values) - {""}):
+            sel = values == value
+            if col == "tamper_type":
+                if value == "orig":
+                    neg, pos = sel & orig, np.zeros_like(sel)
+                else:
+                    neg, pos = orig, sel & ~orig
+            else:
+                neg, pos = sel & orig, sel & ~orig
+            both = neg | pos
+            rows.append({
+                "boyut": dim, "deger": value, "n_orijinal": int(neg.sum()), "n_sahte": int(pos.sum()),
+                "tespit_orani": float(decided[pos].mean()) if pos.any() else np.nan,
+                "yanlis_alarm": float(decided[neg].mean()) if neg.any() and (col != "tamper_type" or value == "orig")
+                else np.nan,
+                "auc": roc_auc(probs[both], labels[both]) if pos.any() and neg.any() else np.nan,
+                "ort_belge_olasiligi": float(probs[pos].mean()) if pos.any() else float(probs[neg].mean()),
+            })
+    return pd.DataFrame(rows)
+
+
+def log_breakdown(key: str, table: pd.DataFrame) -> None:
+    if table.empty:
+        return
+    logger.info("Kırılım — %s:\n%s", key, table.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+
+
+def breakdown_from_files(out_dir: Path, data_root: str) -> None:
+    """``--breakdown-only``: mevcut ``predictions_*.csv`` dosyalarından kırılım üretir."""
+    summary_path = out_dir / "summary.json"
+    temperature = json.loads(summary_path.read_text(encoding="utf-8")).get("temperature", 1.0) \
+        if summary_path.is_file() else 1.0
+    files = sorted(out_dir.glob("predictions_*.csv"))
+    if not files:
+        raise FileNotFoundError(f"{out_dir} altında predictions_*.csv yok; önce evaluate.py'yi modelle çalıştırın.")
+    for path in files:
+        pred = pd.read_csv(path, keep_default_na=False)
+        if "forged_decision" not in pred:
+            logger.warning("%s: forged_decision sütunu yok (eski evaluate.py çıktısı), atlanıyor.", path.name)
+            continue
+        pred = pred.replace("", np.nan)
+        table = breakdown(enrich_predictions(pred, data_root), temperature)
+        key = path.stem.removeprefix("predictions_")
+        table.to_csv(out_dir / f"breakdown_{key}.csv", index=False)
+        log_breakdown(key, table)
+    logger.info("Kırılımlar yazıldı: %s (T=%.3f)", out_dir, temperature)
+
+
 def main() -> None:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.breakdown_only:
+        breakdown_from_files(Path(args.out), args.data_root)
+        return
+    if not args.checkpoint or not args.splits:
+        raise SystemExit("--checkpoint ve --splits zorunludur (yalnızca kırılım için --breakdown-only kullanın).")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, config = load_model(args.checkpoint, device)
     splits = pd.read_csv(args.splits, keep_default_na=False)
@@ -191,7 +337,11 @@ def main() -> None:
                 metrics["decision_balanced_acc"] = (metrics["decision_tpr"] + 1 - metrics["decision_fpr"]) / 2
                 _, table = expected_calibration_error(sigmoid(pred["doc_logit"] / temperature), pred["label"])
                 table.to_csv(out_dir / f"reliability_{split_name}_{source}.csv", index=False)
+            pred = enrich_predictions(pred, args.data_root)
             pred.to_csv(out_dir / f"predictions_{split_name}_{source}.csv", index=False)
+            table = breakdown(pred, temperature)
+            table.to_csv(out_dir / f"breakdown_{split_name}_{source}.csv", index=False)
+            log_breakdown(key, table)
             report[key] = metrics
             logger.info("%s → %s", key, {k: round(v, 4) if isinstance(v, float) else v for k, v in metrics.items()})
 

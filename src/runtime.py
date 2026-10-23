@@ -6,7 +6,12 @@ Dağıtım ortamı (Hugging Face Spaces, Streamlit Community Cloud, Docker) içi
 
   - ``FORENSICS_WEIGHTS_REPO`` — Hugging Face model deposu (ör. ``kullanici/document-forensics``);
     özel depo için ``HF_TOKEN`` da tanımlanmalıdır.
-  - ``FORENSICS_WEIGHTS_URL``  — dosyaların bulunduğu temel URL (``<url>/finetuned_multilingual.pth``).
+  - ``FORENSICS_WEIGHTS_URL``  — dosyaların bulunduğu temel URL (``<url>/finetuned_multilingual.pth``,
+    ``<url>/stageE/best.pth``).
+
+  Depodaki/URL'deki dosya düzeni ``WEIGHT_FILES`` ile aynıdır; alt klasörlü yollar (``stageE/...``)
+  ``checkpoints/`` altında aynı alt klasöre indirilir. Stage E'nin kalibrasyonu kendi klasöründedir
+  (``predict.load_calibration`` önce checkpoint klasörüne bakar).
 
   İndirme başarısız olursa uygulama çökmez; model seçimi boş kalır ve yalnızca OCR analizi sunulur.
 * **Opsiyonel bağımlılıklar:** EasyOCR kurulu değilse OCR seçeneği devre dışı bırakılır; CUDA yoksa
@@ -24,7 +29,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_DIR = Path("checkpoints")
-WEIGHT_FILES = ("finetuned_multilingual.pth", "base_doctamper.pth", "calibration.json")
+WEIGHT_FILES = (
+    "stageE/best.pth", "stageE/calibration.json",                          # varsayılan model (Stage E)
+    "finetuned_multilingual.pth", "base_doctamper.pth", "calibration.json",  # karşılaştırma için Stage B / A
+)
 
 
 def ensure_weights(dest: Path = CHECKPOINT_DIR) -> dict[str, str]:
@@ -50,7 +58,8 @@ def ensure_weights(dest: Path = CHECKPOINT_DIR) -> dict[str, str]:
 
                 hf_hub_download(repo_id=repo, filename=name, local_dir=str(dest), token=os.environ.get("HF_TOKEN"))
             else:
-                tmp = target.with_name(name + ".part")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_name(target.name + ".part")
                 urllib.request.urlretrieve(f"{base_url}/{name}", tmp)
                 tmp.replace(target)
             status[name] = "indirildi"

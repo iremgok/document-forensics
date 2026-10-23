@@ -17,9 +17,11 @@ Akış:
      (orijinal | jet olasılık haritası | %60 orijinal + %40 ısı haritası)
      figürü ``--output`` yoluna kaydedilir.
 
-Kalibrasyon: ``checkpoints/calibration.json`` → ``checkpoints/synthetic/calibration.json``
-sırasıyla aranır; ikisi de yoksa varsayılan değerlerle ``checkpoints/calibration.json``
-oluşturulur. Anahtarlar: ``temperature`` ve ``optimal_threshold`` (ya da ``threshold``).
+Kalibrasyon: önce checkpoint'in kendi klasöründeki ``calibration.json`` (ör. varsayılan Stage E için
+``checkpoints/stageE/calibration.json``, ``evaluate.py`` tarafından yazılır), sonra
+``checkpoints/calibration.json`` → ``checkpoints/synthetic/calibration.json`` aranır; hiçbiri yoksa
+varsayılan değerlerle ``checkpoints/calibration.json`` oluşturulur. ``--calibration`` ile açıkça
+verilebilir. Anahtarlar: ``temperature`` ve ``optimal_threshold`` (ya da ``threshold``).
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="DualStreamForensicNet ile belge sahtecilik tahmini")
     p.add_argument("--image", default=None,
                    help=f"Girdi belge görseli (varsayılan: {' / '.join(DEFAULT_IMAGES)} içinden ilk bulunan)")
-    p.add_argument("--checkpoint", default="checkpoints/stageD/best.pth", help="Model ağırlıkları")
+    p.add_argument("--checkpoint", default="checkpoints/stageE/best.pth", help="Model ağırlıkları")
     p.add_argument("--mode", choices=("sliding", "resize"), default="sliding",
                    help="sliding: orijinal çözünürlükte kayan pencere; resize: 512x512 tek geçiş")
     p.add_argument("--output", default="prediction_result.png", help="Kaydedilecek figür")

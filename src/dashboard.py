@@ -3,6 +3,8 @@
 
 Tüm grafikler gerçek değerlendirme çıktılarından çizilir; uydurma/örnek veri kullanılmaz:
 
+* ``results/summary.csv``, ``summary.json``, ``breakdown_*.csv`` — ``evaluate.py`` çıktıları (val'de
+  seçilen eşikle test/OOD kararları ve sahtecilik türü / kurum / kanal kırılımı). Sekmenin en üstünde.
 * ``results/stageB/``  — ``benchmark.py`` çıktıları (görsel başına skorlar, piksel sayımları,
   piksel örneklemi, JPEG dayanıklılığı, opsiyonel OCR).
 * ``runs/**/history.csv``, ``checkpoints/**/history.csv`` — ``train.py``'nin epoch günlükleri.
@@ -28,6 +30,9 @@ from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT, MIN_REGION_FRACTION
 from src.metrics import expected_calibration_error, fit_temperature, roc_auc, sigmoid
 
 RESULTS_DIR = Path("results/stageB")
+EVAL_DIR = Path("results")
+#: Bu sayının altında sahte örnek içeren kırılım satırları "küçük örneklem" diye işaretlenir.
+SMALL_SAMPLE = 10
 HISTORY_GLOBS = ("runs/**/history.csv", "checkpoints/**/history.csv")
 SYN_META = Path("data/4_synthetic_tr_en/metadata.csv")
 STAGEB_SPLITS = Path("checkpoints/synthetic/splits.csv")
@@ -70,6 +75,20 @@ def load_results(directory: str, stamp: float) -> Optional[dict]:
         "robust": pd.read_csv(d / "robustness.csv") if (d / "robustness.csv").exists() else None,
     }
     return out
+
+
+@st.cache_data(show_spinner=False)
+def load_evaluation(directory: str, stamp: float) -> Optional[dict]:
+    """``evaluate.py`` çıktıları (özet + kırılımlar); ``stamp`` dosya değişince önbelleği geçersiz kılar."""
+    d = Path(directory)
+    if not (d / "summary.csv").exists():
+        return None
+    meta = json.loads((d / "summary.json").read_text(encoding="utf-8")) if (d / "summary.json").exists() else {}
+    return {
+        "summary": pd.read_csv(d / "summary.csv", index_col=0),
+        "meta": meta,
+        "breakdowns": {p.stem.removeprefix("breakdown_"): pd.read_csv(p) for p in sorted(d.glob("breakdown_*.csv"))},
+    }
 
 
 @st.cache_data(show_spinner=False)
@@ -176,6 +195,49 @@ def _heatmap(z: np.ndarray, x: list[str], y: list[str], text: np.ndarray, title:
 # ---------------------------------------------------------------------------
 # Bölümler
 # ---------------------------------------------------------------------------
+
+def section_evaluation(ev: dict) -> None:
+    """``evaluate.py`` özeti: küme başına uygulama kararının başarımı ve kırılım tabloları."""
+    meta, summary = ev["meta"], ev["summary"]
+    st.subheader("🧪 Değerlendirme sonuçları (evaluate.py)")
+    if meta:
+        st.caption(f"Kaynak: `{EVAL_DIR.as_posix()}/summary.csv` · T={meta.get('temperature', float('nan')):.3f} · "
+                   f"karar eşiği={meta.get('threshold', float('nan')):.2f} (val'de hedef FPR ≤ "
+                   f"{meta.get('target_fpr', float('nan')):.2f}; val FPR={meta.get('val_fpr', float('nan')):.3f}, "
+                   f"TPR={meta.get('val_tpr', float('nan')):.3f}). Kararlar uygulamadaki `is_forged` kuralıdır; "
+                   "yan paneldeki eşik bu bölümü değiştirmez.")
+    for key, row in summary.iterrows():
+        st.markdown(f"**{key}**")
+        k = st.columns(5)
+        k[0].metric("Görsel (sahte / orijinal)",
+                    f"{int(row['n_images'])} ({int(row['n_forged'])} / {int(row['n_images'] - row['n_forged'])})")
+        k[1].metric("Belge AUC", f"{row['image_auc']:.3f}" if pd.notna(row.get("image_auc")) else "—")
+        k[2].metric("Tespit oranı (TPR)", f"%{row['decision_tpr'] * 100:.1f}" if pd.notna(row.get("decision_tpr")) else "—")
+        k[3].metric("Yanlış alarm (FPR)", f"%{row['decision_fpr'] * 100:.1f}" if pd.notna(row.get("decision_fpr")) else "—")
+        k[4].metric("Piksel F1", f"{row['pixel_f1']:.3f}")
+
+    if not ev["breakdowns"]:
+        st.info("Sahtecilik türü kırılımı yok. Üretmek için:\n\n```\npython evaluate.py --breakdown-only --out results\n```")
+        return
+    c1, c2 = st.columns(2)
+    key = c1.selectbox("Kırılım kümesi", list(ev["breakdowns"]))
+    table = ev["breakdowns"][key]
+    dim = c2.selectbox("Boyut", list(table["boyut"].unique()))
+    view = table[table["boyut"] == dim].drop(columns="boyut").copy()
+    view["örneklem"] = np.where(view["n_sahte"].between(1, SMALL_SAMPLE - 1), "küçük", "")
+    st.dataframe(view, hide_index=True, use_container_width=True, column_config={
+        "deger": st.column_config.TextColumn(dim),
+        "tespit_orani": st.column_config.ProgressColumn("Tespit oranı", min_value=0.0, max_value=1.0, format="%.2f"),
+        "yanlis_alarm": st.column_config.ProgressColumn("Yanlış alarm", min_value=0.0, max_value=1.0, format="%.2f"),
+        "auc": st.column_config.NumberColumn("AUC", format="%.3f"),
+        "ort_belge_olasiligi": st.column_config.NumberColumn("Ort. belge olasılığı", format="%.3f"),
+    })
+    weak = view[(view["n_sahte"] >= 1) & (view["tespit_orani"] < 0.5)]
+    if not weak.empty:
+        st.warning("Kör nokta (tespit oranı < %50): " + ", ".join(
+            f"{r.deger} (%{r.tespit_orani * 100:.0f}, n={r.n_sahte})" for r in weak.itertuples()))
+    st.caption(f"n_sahte < {SMALL_SAMPLE} olan satırlar 'küçük örneklem'dir; oranlar büyük belirsizlik taşır.")
+
 
 def _no_results() -> None:
     st.info("Değerlendirme sonuçları bulunamadı (`results/stageB/`). Grafikleri üretmek için:\n\n"
@@ -476,6 +538,11 @@ def section_dataset(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: flo
 # ---------------------------------------------------------------------------
 
 def render_dashboard(threshold: float, temperature: float, ckpt_paths: tuple[str, ...]) -> None:
+    ev = load_evaluation(str(EVAL_DIR), max(_mtime(p) for p in [EVAL_DIR / "summary.csv", *EVAL_DIR.glob("breakdown_*.csv")]))
+    if ev is not None:
+        section_evaluation(ev)
+        st.divider()
+    st.subheader("📈 Ayrıntılı analiz (benchmark.py)")
     res = load_results(str(RESULTS_DIR), _mtime(RESULTS_DIR / "meta.json"))
     if res is None:
         _no_results()
@@ -488,6 +555,10 @@ def render_dashboard(threshold: float, temperature: float, ckpt_paths: tuple[str
     st.caption(f"Kaynak: `{RESULTS_DIR.as_posix()}` · {meta['created']} · checkpoint `{meta['checkpoint']}` · "
                f"mod `{meta['mode']}` · piksel olasılıkları T={meta['temperature']:.3f} ile üretildi. "
                "Eşik ve sıcaklık yan paneldeki değerlerden alınır.")
+    default_ckpt = next((p for p in ckpt_paths if Path(p).is_file()), None)
+    if default_ckpt and Path(meta["checkpoint"]).as_posix() != Path(default_ckpt).as_posix():
+        st.warning(f"Bu bölüm `{meta['checkpoint']}` modelinin benchmark sonuçlarıdır; uygulamanın varsayılan modeli "
+                   f"`{default_ckpt}`. Güncel model için: `python benchmark.py --checkpoint {default_ckpt}`")
     if res["max_region"] is None:
         st.warning("Bu `benchmark.py` çıktısında bölge alanı (`max_region`) yok; belge kararları eski "
                    "`maks. piksel ≥ eşik` kuralıyla hesaplanıyor ve arayüzdeki karardan farklı olabilir. "
