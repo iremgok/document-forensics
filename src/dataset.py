@@ -52,10 +52,17 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     # Gerçek, sahte OLMAYAN belgeler (taranmış/fotoğraflanmış/PDF'ten dışa aktarılmış dekont, fatura, fiş).
     # Alt klasörler serbesttir; tüm görüntüler label=0 kabul edilir. Yanlış alarmı düşüren zor negatifler.
     "real_originals": ("7_real_originals",),
+    # ``python -m src.forge_real`` çıktısı: gerçek belgelerin yeniden kaydedilmiş orijinali + sahte varyantları.
+    # Orijinalleri de içerdiği için ``real_originals`` ile birlikte eğitime verilmemelidir.
+    "real_forged": ("8_real_forged",),
 }
 
 #: Yalnızca orijinal (label=0) belgelerden oluşan kaynaklar.
 ORIGINAL_ONLY_SOURCES: tuple[str, ...] = ("sroie2019", "real_originals")
+#: Gerçek belgelerden gelen kaynaklar (dil etiketi taşımasalar da ``--val-lang`` validasyonunda tutulur).
+REAL_SOURCES: tuple[str, ...] = ORIGINAL_ONLY_SOURCES + ("real_forged",)
+#: Aynı gerçek belgeleri (aynı ``group_id``) içeren kaynaklar: biri eğitimdeyse diğeri yüklenmez.
+SHARED_REAL_SOURCES: tuple[str, ...] = ("real_originals", "real_forged")
 
 #: DocTamper alt küme klasörleri (harf büyüklüğüne duyarsız eşleşir). Resmi dağıtımdaki
 #: ``DocTamperV1-*`` adları ``data_root`` altında doğrudan bulunursa kaynak kökü ``data_root`` olur.
@@ -298,6 +305,24 @@ def _manifest_synthetic(root: Path, for_training: bool) -> pd.DataFrame:
     })
 
 
+def _manifest_real_forged(root: Path, for_training: bool) -> pd.DataFrame:
+    """``src/forge_real.py`` çıktısını okur; ``group_id`` dosyada hazırdır (``real:<kurum>/<dosya>``)."""
+    meta_path = root / "metadata.csv"
+    if not meta_path.exists():
+        logger.warning("Gerçek sahtecilik metadata'sı bulunamadı: %s (önce: python -m src.forge_real)", meta_path)
+        return pd.DataFrame(columns=MANIFEST_COLUMNS)
+    meta = pd.read_csv(meta_path, keep_default_na=False)
+    return pd.DataFrame({
+        "image_path": [str(root / p) for p in meta["image"]],
+        "mask_path": [str(root / p) for p in meta["mask"]],
+        "label": meta["label"].astype(int),
+        "group_id": meta["group_id"].astype(str),
+        "source": "real_forged",
+        "fixed_split": "" if for_training else "ood",
+        "lang": meta["lang"],
+    })
+
+
 def link_aiforge_groups(root: Path, cache_path: Path, thumb: int = 64,
                         threshold: float = 1.5, ink_level: float = 235.0) -> dict[str, str]:
     """AIForge-Doc görüntülerini kaynak (orijinal) belgeye göre gruplar."""
@@ -427,7 +452,10 @@ def _manifest_originals(root: Path, source: str, for_training: bool = False) -> 
         "image_path": [str(p) for p in images],
         "mask_path": "",
         "label": 0,
-        "group_id": [f"{source}:{p.relative_to(root).with_suffix('').as_posix()}" for p in images],
+        # Gerçek orijinaller ``forge_real`` çıktısıyla aynı grup kimliğini taşır (real:<kurum>/<dosya>):
+        # aynı belgenin orijinali ve sahteleri farklı bölümlere düşmez.
+        "group_id": [f"{'real' if source == 'real_originals' else source}:"
+                     f"{p.relative_to(root).with_suffix('').as_posix()}" for p in images],
         "source": source,
         "fixed_split": "" if for_training else "ood",
     })
@@ -439,16 +467,28 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
     """Tüm veri kaynaklarını tek bir manifest'te toplar."""
     data_root, cache_dir = Path(data_root), Path(cache_dir)
     frames = []
+    shared_training = [s for s in SHARED_REAL_SOURCES if s in train_sources]
+    if len(shared_training) > 1:
+        logger.warning("real_originals ve real_forged birlikte eğitimde: aynı belgelerin ham orijinali ile yeniden "
+                       "kaydedilmiş sahteleri yan yana olur ('yeniden kayıt = sahte' kestirmesi). Yalnızca "
+                       "real_forged kullanın.")
     for source in SOURCE_DIRS:
         root = resolve_source_dir(data_root, source)
         if root is None:
             logger.info("Kaynak bulunamadı, atlanıyor: %s", source)
             continue
         for_training = source in train_sources
+        if source in SHARED_REAL_SOURCES and not for_training and shared_training:
+            # Aynı belgeler (aynı group_id) eğitimdeki diğer gerçek kaynakta var; bu kaynağı OOD olarak
+            # yüklemek ``ood > train`` önceliğiyle o grupları eğitimden çekerdi.
+            logger.info("%s atlanıyor: aynı belgeler %s ile zaten eğitimde.", source, shared_training[0])
+            continue
         if source == "synthetic":
             frame = _manifest_synthetic(root, for_training)
         elif source == "aiforgedoc":
             frame = _manifest_aiforgedoc(root, for_training, cache_dir)
+        elif source == "real_forged":
+            frame = _manifest_real_forged(root, for_training)
         elif source == "doctamper":
             frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root,
                                         max_train_images=doctamper_max, seed=seed)

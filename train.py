@@ -25,7 +25,8 @@ Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
     öğrenilen DocTamper özniteliklerinin unutulmasını sınırlar.
   * ``stageE``: Yanlış alarm düzeltmesi. ``checkpoints/base_doctamper.pth`` (Stage A) yüklenir
     (Stage C/D'nin "alan konumu = sahte" ezberi taşınmaz); düzenleme izli sentetik v4 +
-    gerçek orijinal belgeler (``data/7_real_originals``) ile dengeli örneklemeyle eğitilir.
+    gerçek belgeler ve onlardan ``src/forge_real.py`` ile üretilen sahteler (``data/8_real_forged``)
+    ile dengeli örneklemeyle eğitilir.
 
 Sınıf dengesi: sentetik veri 1 orijinal : 3 sahte olduğundan eğitim varsayılan olarak
 ``WeightedRandomSampler`` ile orijinal/sahte 50/50 örneklenir (``--no-balance`` ile kapatılır).
@@ -45,7 +46,7 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageB
     python train.py --stage stageC                       # Stage B → TR sentetik ince ayar
     python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual.pth
-    python train.py --stage stageE                       # Stage A → izli sentetik v4 + gerçek orijinaller
+    python train.py --stage stageE                       # Stage A → izli sentetik v4 + gerçek belgeler/sahteleri
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, RandomSampler, WeightedRandomSampler
 
-from src.dataset import (ORIGINAL_ONLY_SOURCES, SOURCE_DIRS, ForgeryDataset, assign_splits, build_manifest,
+from src.dataset import (REAL_SOURCES, SOURCE_DIRS, ForgeryDataset, assign_splits, build_manifest,
                          build_transforms, close_lmdb_envs, worker_init_fn)
 from src.losses import ForensicLoss
 from src.metrics import PixelMetrics, image_level_metrics
@@ -82,7 +83,7 @@ STAGE_PRESETS: dict[str, dict[str, Any]] = {
     "stageB": {"sources": ["synthetic", "sroie2019"], "lr": 1e-5, "init": "stageA_best.pth"},
     "stageC": {"sources": ["synthetic"], "lr": 1e-5, "weight_decay": 1e-4, "epochs": 12,
                "init": "checkpoints/finetuned_multilingual.pth", "val_lang": "tr", "run_dir": "checkpoints/stageC"},
-    "stageE": {"sources": ["synthetic", "real_originals"], "lr": 1e-4, "weight_decay": 1e-4, "epochs": 15,
+    "stageE": {"sources": ["synthetic", "real_forged"], "lr": 1e-4, "weight_decay": 1e-4, "epochs": 15,
                "init": "checkpoints/base_doctamper.pth", "val_lang": "tr", "run_dir": "checkpoints/stageE"},
 }
 DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None, "epochs": 50,
@@ -354,11 +355,11 @@ def main() -> None:
     if args.val_lang:
         # Stage C: model seçimi yalnızca hedef dildeki sentetik val belgeleriyle (val_tr).
         # Bölümleme değişmez; diğer val satırları yalnızca seçime katılmaz (eğitime de girmez).
-        # Gerçek orijinal kaynaklar dil etiketi taşımaz ama yanlış alarm ölçümü için val'de kalır.
+        # Gerçek belge kaynakları (orijinal + gerçek tabanlı sahte) yanlış alarm ölçümü için val'de kalır.
         lang = val_df["lang"] if "lang" in val_df else pd.Series(index=val_df.index, dtype=object)
         keep = (((val_df["source"] == "synthetic") & (lang == args.val_lang))
-                | val_df["source"].isin(ORIGINAL_ONLY_SOURCES))
-        logger.info("Validasyon '%s' dilindeki sentetik + gerçek orijinal belgelerle: %d / %d görüntü (val_%s).",
+                | val_df["source"].isin(REAL_SOURCES))
+        logger.info("Validasyon '%s' dilindeki sentetik + gerçek belgelerle: %d / %d görüntü (val_%s).",
                     args.val_lang, int(keep.sum()), len(val_df), args.val_lang)
         val_df = val_df[keep]
         val_df.to_csv(run_dir / f"val_{args.val_lang}.csv", index=False)

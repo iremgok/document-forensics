@@ -10,7 +10,10 @@ modları ve ``checkpoints/calibration.json`` sıcaklık + eşik kalibrasyonu). S
      bindirmesi (eşik üstü bölgeler beyaz konturla).
   2. **Özet** — belge olasılığı, maksimum piksel olasılığı, eşik üstü alan ve karar kutusu.
   3. **İçerik analizi (opsiyonel)** — EasyOCR + kural motoru (IBAN Mod-97, TCKN,
-     Matrah + KDV = Genel Toplam, KDV oranı) ve hibrit güven skoru.
+     Matrah + KDV = Genel Toplam, KDV oranı).
+  4. **PDF yapı analizi (PDF yüklendiğinde)** — düzenleme aracı izi, artımlı kayıt, dijital imza
+     kapsamı, gizlenmiş/üst üste yazılmış metin, satır içi font tutarsızlığı (``src/pdf_checker.py``).
+  5. **Hibrit karar** — model + OCR + PDF kanıtlarının noisy-OR birleşimi.
 """
 
 from __future__ import annotations
@@ -40,11 +43,12 @@ import streamlit as st
 
 from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, is_forged, load_calibration, make_overlay, predict
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
+from src.pdf_checker import PdfReport, check_pdf
 from src.runtime import cuda_available, easyocr_available, ensure_weights
 
 CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
 PRESET_CHECKPOINTS = {
-    "checkpoints/stageE/best.pth": "Stage E — izli sentetik + gerçek orijinaller (dengeli)",
+    "checkpoints/stageE/best.pth": "Stage E — izli sentetik + gerçek belgeler (dengeli)",
     "checkpoints/stageD/best.pth": "Stage D — Türkçe sentetik v3 ince ayar",
     "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual",
     "checkpoints/base_doctamper.pth": "Stage A — base_doctamper",
@@ -122,36 +126,38 @@ def overlay_with_contours(image: np.ndarray, prob_map: np.ndarray, threshold: fl
     return out
 
 
-def draw_findings(image: np.ndarray, report: ContentReport) -> np.ndarray:
+def draw_findings(image: np.ndarray, report: ContentReport, findings: Optional[list] = None) -> np.ndarray:
     """Başarısız kuralların satır kutularını turuncu, başarılı olanları yeşil çerçeveler."""
     out = image.copy()
-    for f in report.findings:
+    for f in report.findings if findings is None else findings:
         if f.bbox and f.bbox[2] > f.bbox[0] and f.status in (PASS, FAIL):
             color = (255, 140, 0) if f.status == FAIL else (0, 170, 0)
             cv2.rectangle(out, f.bbox[:2], f.bbox[2:], color, max(2, image.shape[1] // 500))
     return out
 
 
-def hybrid_score(dl_score: Optional[float], report: Optional[ContentReport]) -> Optional[float]:
+def hybrid_score(dl_score: Optional[float], *reports: Optional[ContentReport | PdfReport]) -> Optional[float]:
     """
     Hibrit güven skoru — "noisy-OR" birleşimi:
 
-        P(sahte) = 1 − (1 − p_DL) · (1 − r_OCR)
+        P(sahte) = 1 − (1 − p_DL) · (1 − r_OCR) · (1 − r_PDF)
 
     * p_DL: derin öğrenme modelinin kalibre belge olasılığı.
     * r_OCR: kural motorunun risk skoru (yalnızca *başarısız* kurallardan oluşur).
+    * r_PDF: PDF yapı analizinin risk skoru (yalnızca PDF yüklendiğinde).
 
     Gerekçe: İki kaynak farklı sahtecilik türlerini yakalar. Kural ihlali (ör. geçersiz
     IBAN) piksel izi zayıf olsa bile tek başına güçlü kanıttır; tersine, matematiği
     koruyan "akıllı" bir sahtecilikte kuralların geçmesi pikselde görülen izi
     **azaltmamalıdır** — bu yüzden geçen kurallar skoru düşürmez (r_OCR = 0 → skor = p_DL).
     """
-    risk = report.risk if report is not None and report.has_evidence else None
-    if dl_score is None:
-        return risk
-    if risk is None:
-        return dl_score
-    return 1.0 - (1.0 - dl_score) * (1.0 - risk)
+    risks = [r.risk for r in reports if r is not None and r.has_evidence]
+    if dl_score is None and not risks:
+        return None
+    survive = 1.0 - (dl_score or 0.0)
+    for risk in risks:
+        survive *= 1.0 - risk
+    return 1.0 - survive
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +203,14 @@ def sidebar() -> dict:
             "use_ocr": use_ocr, "ocr_gpu": ocr_gpu}
 
 
-def run_analysis(image: np.ndarray, settings: dict) -> dict:
+def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = None) -> dict:
     result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": [],
-                    "errors": []}
+                    "pdf": None, "errors": []}
+    if pdf_data is not None:
+        try:
+            result["pdf"] = check_pdf(pdf_data, dpi=PDF_DPI)
+        except Exception as exc:  # Beklenmedik PDF yapısı: diğer analizler yine de çalışsın
+            result["errors"].append(f"PDF yapı analizi başarısız: {exc.__class__.__name__}: {exc}")
     if settings["ckpt"]:
         try:
             model, config, device = load_detector(settings["ckpt"])
@@ -258,11 +269,7 @@ def show_content(image: np.ndarray, result: dict) -> None:
     if report is None:
         return
     st.subheader("📑 İçerik Analizi")
-    final = hybrid_score(result["doc_prob"], report)
-    h1, h2 = st.columns(2)
-    h1.metric("İçerik (OCR) Riski", f"%{report.risk * 100:.1f}" if report.has_evidence else "kanıt yok")
-    h2.metric("Hibrit Sahtecilik Olasılığı", f"%{final * 100:.1f}" if final is not None else "—",
-              help="1 − (1 − p_model) · (1 − r_OCR)")
+    st.metric("İçerik (OCR) Riski", f"%{report.risk * 100:.1f}" if report.has_evidence else "kanıt yok")
     col_a, col_b = st.columns([3, 2])
     with col_a:
         if report.findings:
@@ -280,6 +287,41 @@ def show_content(image: np.ndarray, result: dict) -> None:
                                    for l in result["lines"]]), use_container_width=True)
 
 
+def show_pdf(image: np.ndarray, result: dict, page: int) -> None:
+    report: Optional[PdfReport] = result.get("pdf")
+    if report is None:
+        return
+    st.subheader("📄 PDF Yapı Analizi")
+    info = report.info
+    p1, p2, p3 = st.columns(3)
+    p1.metric("PDF Yapı Riski", f"%{report.risk * 100:.1f}" if report.has_evidence else "analiz edilemedi")
+    p2.metric("Revizyon", str(info.get("revizyon", "—")), help="1 = dosya oluşturulduktan sonra yeniden kaydedilmemiş")
+    p3.metric("Dijital İmza", str(info.get("imza_sayisi", 0)))
+    col_a, col_b = st.columns([3, 2])
+    with col_a:
+        order = {FAIL: 0, "warn": 1, PASS: 2}
+        for f in sorted(report.findings, key=lambda f: order.get(f.status, 1)):
+            {"pass": st.success, "fail": st.error}.get(f.status, st.warning)(f.message)
+        st.json({k: info.get(k) for k in ("producer", "creator", "olusturma", "degistirme", "sayfa", "fontlar")},
+                expanded=False)
+    with col_b:
+        marked = report.page_findings(page)
+        if marked:
+            st.image(draw_findings(image, report, marked),
+                     caption=f"Sayfa {page + 1}: PDF bulguları (turuncu = ihlal)", use_container_width=True)
+
+
+def show_verdict(result: dict) -> None:
+    """Model, OCR ve PDF kanıtlarının birleşik skoru (en az iki kaynak varsa)."""
+    sources = [result["doc_prob"] is not None, result["report"] is not None, result.get("pdf") is not None]
+    if sum(sources) < 2:
+        return
+    final = hybrid_score(result["doc_prob"], result["report"], result.get("pdf"))
+    st.subheader("⚖️ Hibrit Karar")
+    st.metric("Hibrit Sahtecilik Olasılığı", f"%{final * 100:.1f}" if final is not None else "—",
+              help="1 − (1 − p_model) · (1 − r_OCR) · (1 − r_PDF); mevcut olmayan kaynak 0 sayılır")
+
+
 def analysis_tab(settings: dict) -> None:
     upload = st.file_uploader("Belge yükleyin (JPG, JPEG, PNG, PDF)", type=["jpg", "jpeg", "png", "pdf"])
     if upload is None:
@@ -288,12 +330,13 @@ def analysis_tab(settings: dict) -> None:
 
     data = upload.getvalue()
     page = 0
-    if upload.name.lower().endswith(".pdf"):
+    is_pdf = upload.name.lower().endswith(".pdf")
+    if is_pdf:
         _, n_pages = decode_upload(data, upload.name, 0)
         if n_pages > 1:
             page = st.number_input("PDF sayfası", 1, n_pages, 1) - 1
-        st.caption("Not: PDF rasterleştirildiğinde dosya içi sıkıştırma izleri değişir; "
-                   "mümkünse belgenin orijinal görüntü dosyasını yükleyin.")
+        st.caption("Not: PDF'in dosya yapısı (üretici yazılım, revizyonlar, fontlar, gizlenmiş metin) ayrıca "
+                   "analiz edilir; görüntü modeli sayfanın rasterleştirilmiş hâlini inceler.")
     try:
         image, _ = decode_upload(data, upload.name, page)
     except Exception as exc:  # Bozuk/şifreli dosya
@@ -305,7 +348,7 @@ def analysis_tab(settings: dict) -> None:
     key = (hashlib.sha1(data).hexdigest(), page, settings["ckpt"], settings["mode"], settings["temperature"],
            settings["use_ocr"])
     if st.button("🔎 Analiz Et", type="primary"):
-        st.session_state["analysis"] = (key, run_analysis(image, settings))
+        st.session_state["analysis"] = (key, run_analysis(image, settings, data if is_pdf else None))
 
     stored = st.session_state.get("analysis")
     if stored is None or stored[0] != key:
@@ -319,6 +362,8 @@ def analysis_tab(settings: dict) -> None:
         st.warning(message)
     show_visual(image, result, settings["threshold"])
     show_content(image, result)
+    show_pdf(image, result, page)
+    show_verdict(result)
 
 
 
