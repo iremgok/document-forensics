@@ -4,6 +4,7 @@ Tek belge için sahtecilik çıkarımı ve 3 panelli görselleştirme.
 Çalıştırma:
     python predict.py
     python predict.py --mode resize --image belge.jpg --checkpoint checkpoints/finetuned_multilingual.pth
+    python predict.py --image sahte.png --gt-mask maske.png --gradcam   # + hata haritası ve Grad-CAM
 
 Akış:
   1. Belge okunur ve ImageNet normalizasyonu uygulanır.
@@ -16,6 +17,8 @@ Akış:
   4. Olasılık haritası orijinal boyuta geri ölçeklenir ve
      (orijinal | jet olasılık haritası | %60 orijinal + %40 ısı haritası)
      figürü ``--output`` yoluna kaydedilir.
+  5. (opsiyonel) ``--gt-mask`` verilirse TP/FP/FN **hata haritası** (yeşil/kırmızı/mavi), ``--gradcam``
+     ile sınıflandırma kafası için **Grad-CAM** paneli eklenir (bkz. ``src/explain.py``).
 
 Kalibrasyon: önce checkpoint'in kendi klasöründeki ``calibration.json`` (ör. varsayılan Stage E için
 ``checkpoints/stageE/calibration.json``, ``evaluate.py`` tarafından yazılır), sonra
@@ -30,7 +33,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 import matplotlib
@@ -40,7 +43,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from src.dataset import IMAGENET_MEAN, IMAGENET_STD, limit_long_side, read_image_rgb
+from src.dataset import IMAGENET_MEAN, IMAGENET_STD, limit_long_side, read_image_rgb, read_mask
+from src.explain import cam_overlay, error_counts, error_map, grad_cam
 from src.models import DualStreamForensicNet, load_model, sliding_window_predict
 
 logger = logging.getLogger("predict")
@@ -67,6 +71,10 @@ def parse_args() -> argparse.Namespace:
                    help="Kalibrasyon JSON yolu (verilmezse otomatik aranır / oluşturulur)")
     p.add_argument("--threshold", type=float, default=None,
                    help="Piksel eşiği (verilirse kalibrasyon dosyasındakini ezer)")
+    p.add_argument("--gt-mask", default=None,
+                   help="Gerçek sahtecilik maskesi (varsa TP/FP/FN hata haritası paneli eklenir)")
+    p.add_argument("--gradcam", action="store_true",
+                   help="Sınıflandırma kafası (belge skoru) için Grad-CAM paneli ekle")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -229,10 +237,19 @@ def make_overlay(image: np.ndarray, mask_resized: np.ndarray) -> np.ndarray:
     return cv2.addWeighted(image, 0.6, heatmap, 0.4, 0)
 
 
+def explain_cam(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    """Belgenin (orijinal boyutta) Grad-CAM haritası; ön işlem kayan pencere çıkarımıyla aynıdır."""
+    small, _ = limit_long_side(image, None, config.get("max_side", 1600))
+    cam = grad_cam(model, to_tensor(small), tile=config.get("crop_size", INPUT_SIZE))
+    return cv2.resize(cam, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
+
+
 def save_figure(image: np.ndarray, mask_resized: np.ndarray, overlay: np.ndarray, doc_prob: float,
-                threshold: float, out_path: Path) -> None:
+                threshold: float, out_path: Path, extra: Optional[list[tuple[str, np.ndarray]]] = None) -> None:
+    """3 temel panel + ``extra`` (başlık, RGB görüntü) panelleri (hata haritası, Grad-CAM)."""
     area = float((mask_resized >= threshold).mean() * 100)
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6.5))
+    extra = extra or []
+    fig, axes = plt.subplots(1, 3 + len(extra), figsize=(6 * (3 + len(extra)), 6.5))
 
     axes[0].imshow(image)
     axes[0].set_title("Orijinal Belge")
@@ -245,6 +262,10 @@ def save_figure(image: np.ndarray, mask_resized: np.ndarray, overlay: np.ndarray
     if mask_resized.max() >= threshold:
         axes[2].contour(mask_resized >= threshold, levels=[0.5], colors="white", linewidths=1.0)
     axes[2].set_title(f"Isı Haritası Bindirme (eşik={threshold:.2f})")
+
+    for ax, (title, panel) in zip(axes[3:], extra):
+        ax.imshow(panel)
+        ax.set_title(title)
 
     for ax in axes:
         ax.axis("off")
@@ -282,8 +303,20 @@ def main() -> None:
                     raw_doc_prob, doc_prob)
     overlay = make_overlay(image, mask_resized)
 
+    extra: list[tuple[str, np.ndarray]] = []
+    if args.gt_mask:
+        gt = read_mask(args.gt_mask, image.shape[:2])
+        counts = error_counts(mask_resized, gt, threshold)
+        logger.info("Hata haritası (eşik=%.2f): TP=%d, FP=%d, FN=%d piksel", threshold,
+                    counts["tp"], counts["fp"], counts["fn"])
+        extra.append(("Hata Haritası (yeşil=TP, kırmızı=FP, mavi=FN)", error_map(image, mask_resized, gt, threshold)))
+    if args.gradcam:
+        if args.mode != "sliding":
+            logger.warning("Grad-CAM kayan pencere ön işlemiyle hesaplanır (--mode %s yok sayıldı).", args.mode)
+        extra.append(("Grad-CAM (belge skoru)", cam_overlay(image, explain_cam(model, image, config))))
+
     out_path = Path(args.output)
-    save_figure(image, mask_resized, overlay, doc_prob, threshold, out_path)
+    save_figure(image, mask_resized, overlay, doc_prob, threshold, out_path, extra)
     logger.info("Belge olasılığı=%.4f, maks piksel=%.4f, eşik üstü alan=%.2f%%",
                 doc_prob, mask_resized.max(), (mask_resized >= threshold).mean() * 100)
     logger.info("Karar (eşik=%.2f): %s", threshold,

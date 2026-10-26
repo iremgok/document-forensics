@@ -171,7 +171,11 @@ def complete_vkn(first_nine: str) -> str:
 # 3) Tutar ayrıştırma (TR: 1.234,56 — EN: 1,234.56)
 # ---------------------------------------------------------------------------
 
-_AMOUNT_RE = re.compile(r"(?<![\d.,])\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})(?![\d])|(?<![\d.,])\d+(?:[.,]\d{2})(?![\d])")
+#: Ayraçtan sonra tek boşluğa izin verilir: OCR "2.691,61"i sık sık "2. 691,61" ya da "691, 61" diye okur;
+#: aksi hâlde yalnızca "691,61" yakalanır ve orijinal belgede "Matrah + KDV ≠ Toplam" yanlış alarmı oluşur.
+#: Arkasından ".rakam" gelen eşleşmeler (ör. "20.03.2021" tarihi) tutar sayılmaz.
+_AMOUNT_RE = re.compile(r"(?<![\d.,])\d{1,3}(?:(?:[.,] ?|\s)\d{3})*(?:[.,] ?\d{2})(?![\d]|[.,]\d)"
+                        r"|(?<![\d.,])\d+(?:[.,] ?\d{2})(?![\d]|[.,]\d)")
 _RATE_RE = re.compile(r"%\s*(\d{1,2})|(\d{1,2})\s*%")
 
 

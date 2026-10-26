@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
@@ -55,6 +56,11 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     # ``python -m src.forge_real`` çıktısı: gerçek belgelerin yeniden kaydedilmiş orijinali + sahte varyantları.
     # Orijinalleri de içerdiği için ``real_originals`` ile birlikte eğitime verilmemelidir.
     "real_forged": ("8_real_forged",),
+    # Gönüllülerin Photoshop/GIMP/telefon ile elle yaptığı sahtecilikler + orijinalleri
+    # (``tools/make_human_masks.py`` çıktısı). **Yalnızca test**: eğitime ve eşik seçimine asla girmez.
+    "human_forged": ("9_human_forged",),
+    # Gerçek difüzyon inpainting sahtecilikleri (``tools/diffusion_inpaint.py``); group_id kaynak belgeninkidir.
+    "diffusion_forged": ("10_diffusion_forged",),
 }
 
 #: Yalnızca orijinal (label=0) belgelerden oluşan kaynaklar.
@@ -202,6 +208,33 @@ def _lmdb_index_range(lmdb_dir: Path) -> range:
 # Yardımcı G/Ç fonksiyonları
 # ---------------------------------------------------------------------------
 
+def image_key(path: str | Path) -> str:
+    """Görüntü yolu için dosya adı olarak güvenli, benzersiz anahtar.
+
+    Son iki yol bileşeni kullanılır (ör. ``DocTamperV1-FCD::image-000000012`` →
+    ``DocTamperV1-FCD__image-000000012``); dış modellerin (TruFor, DTD) olasılık haritaları ve
+    ``tools/export_eval_images.py`` çıktıları bu adla eşleştirilir.
+    """
+    text = str(path).replace("\\", "/")
+    if text.startswith(LMDB_PREFIX):
+        lmdb_dir, key = text[len(LMDB_PREFIX):].rsplit(LMDB_SEP, 1)
+        parts = [Path(lmdb_dir).name, key]
+    else:
+        p = Path(text)
+        parts = [p.parent.parent.name if p.parent.name in ("images", "authentic") else p.parent.name, p.stem]
+        if p.parent.name == "authentic":
+            parts[1] = f"authentic_{p.stem}"
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", "__".join(parts))
+
+
+def read_image_bytes(path: str | Path) -> bytes:
+    """Görüntünün ham baytları (yeniden kodlamadan; sıkıştırma izleri korunur)."""
+    data = _read_bytes(path)
+    if data is None:
+        raise IOError(f"Görüntü okunamadı: {path}")
+    return bytes(data)
+
+
 def read_image_rgb(path: str | Path) -> np.ndarray:
     """Görüntüyü RGB uint8 olarak okur (dosya ya da ``lmdb://`` sanal yolu)."""
     buffer = _read_bytes(path)
@@ -302,6 +335,7 @@ def _manifest_synthetic(root: Path, for_training: bool) -> pd.DataFrame:
         "source": "synthetic",
         "fixed_split": "" if for_training else "ood",
         "lang": meta["lang"] if "lang" in meta else None,
+        "doc_type": meta["doc_type"] if "doc_type" in meta else None,
     })
 
 
@@ -314,12 +348,37 @@ def _manifest_real_forged(root: Path, for_training: bool) -> pd.DataFrame:
     meta = pd.read_csv(meta_path, keep_default_na=False)
     return pd.DataFrame({
         "image_path": [str(root / p) for p in meta["image"]],
-        "mask_path": [str(root / p) for p in meta["mask"]],
+        "mask_path": [str(root / p) if p else "" for p in meta["mask"]],  # boş = orijinal (maske yok)
         "label": meta["label"].astype(int),
         "group_id": meta["group_id"].astype(str),
         "source": "real_forged",
         "fixed_split": "" if for_training else "ood",
         "lang": meta["lang"],
+        "doc_type": meta["doc_type"] if "doc_type" in meta else None,
+    })
+
+
+def _manifest_human_forged(root: Path) -> pd.DataFrame:
+    """``tools/make_human_masks.py`` çıktısı: gönüllü sahtecilikleri ve orijinalleri. Daima ``test``.
+
+    Eğitim kaynaklarında yer alsa bile ``fixed_split='test'`` olur; böylece insan eliyle yapılmış
+    sahtecilikler hiçbir zaman eğitime, erken durdurmaya ya da eşik seçimine girmez.
+    """
+    meta_path = root / "metadata.csv"
+    if not meta_path.exists():
+        logger.warning("Gönüllü sahtecilik metadata'sı bulunamadı: %s (önce: python tools/make_human_masks.py)",
+                       meta_path)
+        return pd.DataFrame(columns=MANIFEST_COLUMNS)
+    meta = pd.read_csv(meta_path, keep_default_na=False)
+    return pd.DataFrame({
+        "image_path": [str(root / p) for p in meta["image"]],
+        "mask_path": [str(root / p) if p else "" for p in meta["mask"]],
+        "label": meta["label"].astype(int),
+        "group_id": "human:" + meta["group_id"].astype(str),
+        "source": "human_forged",
+        "fixed_split": "test",
+        "lang": meta["lang"] if "lang" in meta else None,
+        "doc_type": meta["doc_type"] if "doc_type" in meta else None,
     })
 
 
@@ -489,6 +548,10 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
             frame = _manifest_aiforgedoc(root, for_training, cache_dir)
         elif source == "real_forged":
             frame = _manifest_real_forged(root, for_training)
+        elif source == "human_forged":
+            frame = _manifest_human_forged(root)
+        elif source == "diffusion_forged":
+            frame = _manifest_real_forged(root, for_training).assign(source="diffusion_forged")
         elif source == "doctamper":
             frame = _manifest_doctamper(root, for_training, known_sets_only=root == data_root,
                                         max_train_images=doctamper_max, seed=seed)
@@ -513,6 +576,35 @@ def build_manifest(data_root: str | Path, train_sources: Sequence[str],
 # ---------------------------------------------------------------------------
 # Sızıntısız ayırıcı
 # ---------------------------------------------------------------------------
+
+def apply_holdout(manifest: pd.DataFrame, issuers: Sequence[str] = (), doc_types: Sequence[str] = ()
+                  ) -> pd.DataFrame:
+    """Belirli kurumların / belge tiplerinin **tüm** gruplarını test kümesine sabitler.
+
+    Rastgele grup bölmesi, aynı kurumun (ör. Garanti dekontu) farklı belgelerini hem eğitime hem teste
+    koyar; model kurum şablonunu tanıyarak doğru cevap verebilir. Bir kurumu / belge tipini tamamen
+    test için ayırmak, **hiç görülmemiş şablona genellemeyi** ölçer.
+
+    * ``issuers``: ``group_id`` = ``real:<kurum>/...`` olan gerçek belgelerde kurum adı.
+    * ``doc_types``: ``doc_type`` sütunu (sentetik: dekont / fatura / fis; gerçek: kurum).
+    ``assign_splits`` önceliği (``ood > test > val > train``) sayesinde aynı gruptaki tüm görüntüler teste gider.
+    """
+    df = manifest.copy()
+    issuers = {i.lower() for i in issuers}
+    doc_types = {d.lower() for d in doc_types}
+    issuer = df["group_id"].astype(str).str.extract(r"^real:([^/]+)/")[0].str.lower()
+    doc_type = df["doc_type"].astype(str).str.lower() if "doc_type" in df else pd.Series("", index=df.index)
+    hold = issuer.isin(issuers) | doc_type.isin(doc_types)
+    hold &= df["fixed_split"].fillna("") != "ood"
+    if hold.any():
+        df.loc[hold, "fixed_split"] = "test"
+        logger.info("Test için ayrıldı: %d görüntü (kurum: %s, belge tipi: %s).", int(hold.sum()),
+                    ", ".join(sorted(issuers)) or "-", ", ".join(sorted(doc_types)) or "-")
+    elif issuers or doc_types:
+        logger.warning("Ayırma kuralıyla eşleşen görüntü yok (kurum: %s, belge tipi: %s).",
+                       sorted(issuers), sorted(doc_types))
+    return df
+
 
 def assign_splits(manifest: pd.DataFrame, ratios: tuple[float, float, float] = (0.70, 0.15, 0.15),
                   seed: int = 42) -> pd.DataFrame:
@@ -587,14 +679,66 @@ def jpeg_compression(quality_low: int = 50, quality_high: int = 100, p: float = 
         return A.ImageCompression(quality_lower=quality_low, quality_upper=quality_high, p=p)
 
 
+class AlignedCrop:
+    """JPEG 8x8 blok ızgarasını koruyan kırpma (DCT akışı için) + kalan dönüşümler.
+
+    Albumentations kırpmaları rastgele piksel konumundan başlar; bu, DCT akışının aradığı blok
+    hizasını bozar. Burada kırpma başlangıcı 8'in katıdır ve dolgu yalnızca sağ/alt kenara yapılır
+    (sol/üst dolgu ızgarayı kaydırırdı). ``nonempty_p`` olasılıkla kırpma sahte bölgeyi içerir.
+    Rastgelelik ``random`` modülünden gelir (PyTorch her DataLoader worker'ında ayrı tohumlar).
+    """
+
+    def __init__(self, crop_size: int, nonempty_p: float, rest: Callable) -> None:
+        if crop_size % 8:
+            raise ValueError("DCT hizalı kırpma için crop_size 8'in katı olmalı")
+        self.crop_size, self.nonempty_p, self.rest = crop_size, nonempty_p, rest
+
+    def _origin(self, limit: int, center: Optional[int]) -> int:
+        import random
+
+        max_block = max(limit - self.crop_size, 0) // 8
+        if center is None:
+            return 8 * random.randint(0, max_block)
+        lo = max(0, (center - self.crop_size + 8) // 8)
+        hi = min(max_block, center // 8)
+        return 8 * random.randint(min(lo, hi), hi)
+
+    def __call__(self, image: np.ndarray, mask: np.ndarray) -> dict[str, Any]:
+        import random
+
+        h, w = image.shape[:2]
+        pad_h, pad_w = max(0, self.crop_size - h), max(0, self.crop_size - w)
+        if pad_h or pad_w:
+            image = cv2.copyMakeBorder(image, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
+            mask = cv2.copyMakeBorder(mask, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0)
+            h, w = image.shape[:2]
+        cy = cx = None
+        if mask.any() and random.random() < self.nonempty_p:
+            ys, xs = np.nonzero(mask)
+            k = random.randrange(len(ys))
+            cy, cx = int(ys[k]), int(xs[k])
+        y0, x0 = self._origin(h, cy), self._origin(w, cx)
+        image = image[y0:y0 + self.crop_size, x0:x0 + self.crop_size]
+        mask = mask[y0:y0 + self.crop_size, x0:x0 + self.crop_size]
+        return self.rest(image=np.ascontiguousarray(image), mask=np.ascontiguousarray(mask))
+
+
 def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5,
-                     nonempty_p: float = 0.5) -> Callable:
+                     nonempty_p: float = 0.5, flip_p: float = 0.0, align8: bool = False,
+                     jpeg_quality: tuple[int, int] = (50, 100)) -> Callable:
     """Albumentations dönüşüm hattı.
 
-    Eğitimde ``jpeg_p`` olasılıkla Q ∈ [50, 100] JPEG sıkıştırması uygulanır (0 = kapalı).
+    Eğitimde ``jpeg_p`` olasılıkla Q ∈ ``jpeg_quality`` JPEG sıkıştırması uygulanır (0 = kapalı).
     ``nonempty_p`` olasılıkla kırpma sahte bölgeyi içerecek şekilde seçilir, kalanında rastgele
     kırpılır. Yüksek değer (eski 0.7) sahte belgelerin temiz bölgelerini neredeyse hiç
     göstermez; model "metin alanı = sahte" ezberine kayar. Validasyon/test dönüşümleri değişmez.
+
+    ``flip_p`` > 0: yatay/dikey çevirme ve 90° döndürme. Bunlar **kayıpsız** işlemlerdir (piksel
+    yeniden örneklenmez, interpolasyon yok); bu yüzden SRM gürültü izini ve — 8'in katı boyutlu
+    kırpıntıda — JPEG blok ızgarasını korur. Keyfi açılı döndürme, ölçekleme ve bulanıklaştırma ise
+    izleri değiştirdiği için **kullanılmaz**.
+
+    ``align8``: kırpmayı JPEG 8x8 ızgarasına hizalar (DCT akışı, bkz. ``AlignedCrop``).
     """
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
@@ -602,16 +746,19 @@ def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5,
     tail = [A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD), ToTensorV2()]
     if not train:
         return A.Compose(tail)
-    jpeg = [jpeg_compression(50, 100, jpeg_p)] if jpeg_p > 0 else []
+    jpeg = [jpeg_compression(jpeg_quality[0], jpeg_quality[1], jpeg_p)] if jpeg_p > 0 else []
+    flips = [A.HorizontalFlip(p=flip_p), A.VerticalFlip(p=flip_p / 2), A.RandomRotate90(p=flip_p)] \
+        if flip_p > 0 else []
+    after_crop = [*flips, A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3), *jpeg, *tail]
+    if align8:
+        return AlignedCrop(crop_size, nonempty_p, A.Compose(after_crop))
     return A.Compose([
         A.PadIfNeeded(min_height=crop_size, min_width=crop_size, border_mode=cv2.BORDER_REFLECT_101),
         A.OneOf([
             A.CropNonEmptyMaskIfExists(height=crop_size, width=crop_size, p=nonempty_p),
             A.RandomCrop(height=crop_size, width=crop_size, p=1.0 - nonempty_p),
         ], p=1.0),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
-        *jpeg,
-        *tail,
+        *after_crop,
     ])
 
 

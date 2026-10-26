@@ -36,7 +36,12 @@ document_forensics/
 │   ├── 2_finetune_aiforgedoc/   # AIForge-Doc (mevcut "finetune_aiforgedoc" klasörü de otomatik tanınır)
 │   ├── 3_sroie2019/             # SROIE2019 orijinal fişler (yalnızca OOD yanlış-alarm testi)
 │   ├── 4_synthetic_tr_en/       # Önceki sentetik sürüm (Stage B)
-│   ├── 5_synthetic_tr_en_v3/    # src/generate_synthetic.py varsayılan çıktısı (~8000 görüntü, Stage C)
+│   ├── 5_synthetic_tr_en_v3/    # Sentetik v3 (~8000 görüntü, Stage C)
+│   ├── 6_synthetic_tr_en_v4/    # Sentetik v4: yarı taranmış / yarı dijital, düzenleme izli (12 000, Stage E)
+│   ├── 7_real_originals/        # Gerçek orijinal belgeler (<kurum>/...)
+│   ├── 8_real_forged/           # src/forge_real.py: gerçek belgelerin sahte varyantları (Stage E)
+│   ├── 9_human_forged/          # tools/make_human_masks.py: gönüllü sahtecilikleri (yalnızca test)
+│   ├── 10_diffusion_forged/     # tools/diffusion_inpaint.py: difüzyon inpainting sahtecilikleri
 │   └── splits/                  # Önbellek: AIForge-Doc kaynak-grup eşlemesi
 ├── src/
 │   ├── dataset.py               # Manifest, sızıntısız grup ayırıcı, PyTorch Dataset
@@ -44,7 +49,8 @@ document_forensics/
 │   ├── losses.py                # Dice + 2·Focal (+ belge BCE)
 │   ├── metrics.py               # AUC, Piksel-F1/IoU, ECE, Brier, sıcaklık ölçekleme
 │   ├── generate_synthetic.py    # TR/EN dekont-fatura-fiş + sahtecilik + maske üretici
-│   ├── ocr_checker.py           # EasyOCR + IBAN Mod-97 + TCKN + KDV kural motoru
+│   ├── ocr_checker.py           # EasyOCR + IBAN Mod-97 + TCKN/VKN + KDV kural motoru
+│   ├── explain.py               # Hata haritası (TP/FP/FN) ve Grad-CAM
 │   ├── dashboard.py             # Model başarımı sekmesi (Plotly)
 │   └── runtime.py               # Dağıtım: ağırlık indirme, EasyOCR/CUDA kontrolleri
 ├── checkpoints/<run>/           # best.pth, last.pth, splits.csv, config.json, calibration.json
@@ -236,9 +242,68 @@ matematiği koruyan bir sahtecilik (`amount_consistent`) yalnızca piksel izleri
 
 | Düzey | Metrik |
 |---|---|
-| Belge | ROC-AUC (Mann-Whitney), doğruluk, TPR, FPR |
-| Piksel | F1 ve IoU — küresel ve sahte görüntü başına ortalama |
+| Belge | ROC-AUC (Mann-Whitney), AP, doğruluk, TPR, FPR, **TPR@FPR = %1 / %2 / %5** |
+| Karar (`is_forged`) | TP / FP / FN / TN, precision, recall, specificity, F1, accuracy, dengeli doğruluk |
+| Piksel | F1 (= Dice), IoU, precision, recall — küresel ve sahte görüntü başına; örneklenmiş piksellerden ROC-AUC ve AP |
 | Kalibrasyon | ECE (15 kutu), Brier, güvenilirlik tablosu (`results/reliability_*.csv`) |
+| Belirsizlik | %95 **bootstrap güven aralıkları** (`*_ci_lo` / `*_ci_hi`): belge AUC, TPR@FPR=%2, karar TPR/FPR/F1, piksel F1 |
 
 Kaynak başına ayrı raporlanır (`results/summary.csv`). Yalnızca orijinal belgeden oluşan kümelerde
-(SROIE2019) AUC tanımsızdır; FPR (yanlış alarm oranı) yorumlanmalıdır.
+(SROIE2019) AUC tanımsızdır; FPR (yanlış alarm oranı) yorumlanmalıdır. `--error-maps N` her küme için
+TP/FP/FN hata haritaları, `--ocr` OCR kural motoru riskini (`ocr_risk`) de kaydeder.
+
+---
+
+## Değerlendirme, ablasyon ve baseline araçları
+
+| Araç | Ne yapar? |
+|---|---|
+| `evaluate.py` | Yukarıdaki metrikler + güven aralıkları; `arrays_*.npz` (ablasyon için), `--error-maps`, `--ocr`, `--external-maps` (dış model) |
+| `ablation_decision.py` | Yeniden çıkarım yapmadan: belge havuzlaması (max / top-%5 / %10 / %25 / ortalama), `fuse_doc_score` açık/kapalı, karar kuralı, en küçük bölge alanı, sıcaklık, OCR hibrit |
+| `predict.py --gt-mask m.png --gradcam` | Tek belge: hata haritası (yeşil = TP, kırmızı = FP, mavi = FN) ve sınıflandırma kafası için Grad-CAM |
+| `app.py` | Kenar çubuğunda **Grad-CAM** anahtarı; "Açıklanabilirlik" bölümünde gerçek maske yüklenirse hata haritası |
+| `tools/build_test_protocol.py` | Tüm modeller için tek, dondurulmuş test dosyası (`results/protocol/test_v1.csv`); DocTamper TestingSet / FCD / SCD ayrı satırlarda |
+| `tools/export_eval_images.py` | Test görüntülerini (LMDB dahil) ham baytlarıyla TruFor / DTD / CAT-Net için dışa aktarır |
+| `tools/convert_baseline_outputs.py` | Dış model çıktılarını (`.npz` / `.npy` / `.png`) `evaluate.py --external-maps` biçimine çevirir |
+| `tools/compare_models.py` | Birden fazla modelin özetini güven aralıklı tek karşılaştırma tablosunda birleştirir (`.csv` + `.md`) |
+| `tools/plot_history.py` | `history.csv` dosyalarından train/val kayıp ve metrik eğrileri (overfitting / underfitting analizi) |
+| `tools/make_human_masks.py` | Gönüllü (insan eliyle yapılmış) sahtecilik çiftlerinden maske → `data/9_human_forged` (**yalnızca test**) |
+| `tools/diffusion_inpaint.py` | Gerçek difüzyon inpainting ile YZ sahteciliği → `data/10_diffusion_forged` (test grupları korunur) |
+| `tools/ocr_eval.py` | OCR alan çıkarma doğruluğu, kural bazında yanlış alarm / tetiklenme oranı, EasyOCR ↔ PaddleOCR |
+
+**Ablasyon ve iyileştirme seçenekleri (`train.py`):**
+
+```bash
+# Akış ablasyonu (aynı veri, aynı bütçe, aynı seed)
+python train.py --stage stageE --streams rgb         --run-dir checkpoints/abl_rgb
+python train.py --stage stageE --streams srm         --run-dir checkpoints/abl_srm
+python train.py --stage stageE --streams rgb+srm     --run-dir checkpoints/abl_rgbsrm
+# DCT (JPEG) akışı + kayıpsız çevirme + ayrımsal LR + JPEG müfredatı + çalışma noktasına göre model seçimi
+python train.py --stage stageE --streams rgb+srm+dct --flip-aug-p 0.5 --encoder-lr-mult 0.1     --jpeg-curriculum 3 --monitor image_tpr_at_fpr02 --init checkpoints/stageE/best.pth --run-dir checkpoints/stageF
+# Görülmemiş kurum / belge tipine genelleme
+python train.py --stage stageE --holdout-issuers garanti   --run-dir checkpoints/holdout_garanti
+python train.py --stage stageE --holdout-doc-types fis     --run-dir checkpoints/holdout_fis
+# Tekrarlanabilirlik: ana sonuçlar için 3 seed (ortalama ± std)
+for s in 42 43 44; do python train.py --stage stageE --seed $s --run-dir checkpoints/stageE_s$s; done
+```
+
+* `--streams rgb+srm+dct`: DCT katmanı **sıfırla başlatılır**; mevcut bir RGB+SRM ağırlığından (`--init`) başlayan
+  model ilk adımda birebir aynı çıktıyı verir. Eğitim kırpmaları JPEG 8x8 ızgarasına hizalanır. Uzun kenarı
+  `max_side`'dan büyük olup küçültülen görüntülerde ve PNG ekran görüntülerinde DCT akışı katkı vermez.
+* `--init` farklı akışlı bir ağırlıktan uyumlu yüklenir (6 → 3 kanal ilk konvolüsyon dilimlenir).
+
+**Baseline akışı (TruFor örneği):**
+
+```bash
+python tools/build_test_protocol.py --from-splits checkpoints/stageE/splits.csv --out results/protocol/test_v1.csv
+python tools/export_eval_images.py --splits results/protocol/test_v1.csv --out baselines/eval_images
+# TruFor deposunun çıkarım betiğiyle (ör. trufor_test.py -in <girdi> -out <çıktı>; komut için deponun README'sine bakın):
+#   girdi = baselines/eval_images/images, çıktı = baselines/trufor_raw
+python tools/convert_baseline_outputs.py --inputs baselines/trufor_raw --out baselines/trufor/maps
+python evaluate.py --external-maps baselines/trufor/maps --external-scores baselines/trufor/maps/scores.csv     --splits results/protocol/test_v1.csv --out results/baselines/trufor
+python evaluate.py --checkpoint checkpoints/stageE/best.pth --splits results/protocol/test_v1.csv --out results/stageE
+python tools/compare_models.py --run "Stage E=results/stageE" --run "TruFor=results/baselines/trufor"
+```
+
+Dış modelin çıktı anahtar adları sürüme göre değişebilir: `convert_baseline_outputs.py --list-keys` ile kontrol
+edin (`--map-key`, `--score-key`).

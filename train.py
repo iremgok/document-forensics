@@ -35,6 +35,19 @@ Dengesiz örneklemede belge kafası "her şey sahte" önceline kayar.
 Tüm aşamalarda eğitim görüntüleri ``--jpeg-aug-p`` (varsayılan 0.5) olasılıkla Q ∈ [50, 100]
 JPEG sıkıştırmasından geçer (``src/dataset.py::build_transforms``).
 
+Ablasyon ve iyileştirme seçenekleri:
+  * ``--streams rgb | srm | rgb+srm | rgb+srm+dct``: girdi akışları (``src/models.py``). ``--init`` farklı
+    akışlı bir ağırlıktan uyumlu yüklenir (ör. RGB+SRM → +DCT: DCT katmanı sıfırla başlar).
+  * ``--flip-aug-p``: kayıpsız çevirme / 90° döndürme artırması (varsayılan 0 = önceki davranış).
+  * ``--encoder-lr-mult``: kodlayıcı için öğrenme oranı çarpanı (ayrımsal öğrenme oranı; ör. 0.1).
+  * ``--jpeg-curriculum N``: ilk N epoch JPEG artırması yalnızca Q ∈ [90, 100], sonra [50, 100]
+    (DocTamper/DTD müfredatı).
+  * ``--holdout-issuers`` / ``--holdout-doc-types``: bir kurumu / belge tipini tamamen teste ayırır
+    (görülmemiş şablona genelleme).
+  * ``--monitor image_tpr_at_fpr02``: model seçimi uygulamadaki çalışma noktasına göre (%2 yanlış alarmda TPR).
+  * Ana sonuçlar için farklı ``--seed`` değerleriyle (ör. 42, 43, 44) en az 3 tekrar yapılıp
+    ortalama ± standart sapma raporlanmalıdır.
+
 Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
 
 Örnek:
@@ -47,6 +60,10 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageC                       # Stage B → TR sentetik ince ayar
     python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual.pth
     python train.py --stage stageE                       # Stage A → izli sentetik v4 + gerçek belgeler/sahteleri
+    python train.py --stage stageE --streams rgb --run-dir checkpoints/abl_rgb       # ablasyon: yalnız RGB
+    python train.py --stage stageE --streams rgb+srm+dct --flip-aug-p 0.5 --encoder-lr-mult 0.1 \
+        --jpeg-curriculum 3 --monitor image_tpr_at_fpr02 --run-dir checkpoints/stageF  # iyileştirilmiş model
+    python train.py --stage stageE --holdout-issuers garanti --run-dir checkpoints/holdout_garanti
 """
 
 from __future__ import annotations
@@ -66,11 +83,11 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, RandomSampler, WeightedRandomSampler
 
-from src.dataset import (REAL_SOURCES, SOURCE_DIRS, ForgeryDataset, assign_splits, build_manifest,
+from src.dataset import (REAL_SOURCES, SOURCE_DIRS, ForgeryDataset, apply_holdout, assign_splits, build_manifest,
                          build_transforms, close_lmdb_envs, worker_init_fn)
 from src.losses import ForensicLoss
 from src.metrics import PixelMetrics, image_level_metrics
-from src.models import DualStreamForensicNet, save_checkpoint, sliding_window_predict
+from src.models import STREAMS, DualStreamForensicNet, load_compatible_state, save_checkpoint, sliding_window_predict
 
 logger = logging.getLogger("train")
 
@@ -108,6 +125,8 @@ def parse_args() -> argparse.Namespace:
                    help="Kaldığı yerden devam: last.pth yolu (model + optimizer + scheduler + epoch). "
                         "Klasör verilirse içindeki last.pth kullanılır.")
     p.add_argument("--encoder", default="efficientnet-b4")
+    p.add_argument("--streams", default="rgb+srm", choices=STREAMS,
+                   help="Girdi akışları (ablasyon): rgb, srm, rgb+srm (varsayılan) veya rgb+srm+dct")
     p.add_argument("--encoder-weights", default="imagenet", help="'none' ile rastgele başlatma")
     p.add_argument("--crop-size", type=int, default=512)
     p.add_argument("--max-side", type=int, default=1600, help="Uzun kenar sınırı (yalnızca küçültme)")
@@ -122,6 +141,16 @@ def parse_args() -> argparse.Namespace:
                    help="Eğitimde Q∈[50,100] JPEG sıkıştırma artırmasının olasılığı (0 = kapalı)")
     p.add_argument("--crop-nonempty-p", type=float, default=0.5,
                    help="Sahte belgede kırpmanın sahte bölgeyi içerme olasılığı (kalanı rastgele kırpma)")
+    p.add_argument("--flip-aug-p", type=float, default=0.0,
+                   help="Kayıpsız yatay/dikey çevirme ve 90° döndürme artırması olasılığı (0 = kapalı)")
+    p.add_argument("--encoder-lr-mult", type=float, default=1.0,
+                   help="Kodlayıcı öğrenme oranı çarpanı (ayrımsal LR; ör. 0.1 → kodlayıcı lr/10)")
+    p.add_argument("--jpeg-curriculum", type=int, default=0,
+                   help="İlk N epoch JPEG artırması Q∈[90,100], sonrasında Q∈[50,100] (0 = kapalı)")
+    p.add_argument("--holdout-issuers", nargs="*", default=[],
+                   help="Bu kurumların (real:<kurum>/...) tüm belgelerini test kümesine ayır")
+    p.add_argument("--holdout-doc-types", nargs="*", default=[],
+                   help="Bu belge tiplerinin (doc_type sütunu) tüm belgelerini test kümesine ayır")
     p.add_argument("--no-balance", action="store_true",
                    help="Orijinal/sahte 50/50 dengeli örneklemeyi kapat (veri setindeki oranla örnekle)")
     p.add_argument("--samples-per-epoch", type=int, default=20000,
@@ -134,8 +163,9 @@ def parse_args() -> argparse.Namespace:
                    help="Her epoch kullanılan sabit val alt kümesi boyutu (tam çözünürlük validasyon "
                         "pahalıdır); 0 = tüm val kümesi. evaluate.py etkilenmez.")
     p.add_argument("--patience", type=int, default=8, help="Erken durdurma sabrı (epoch)")
-    p.add_argument("--monitor", default="score", choices=["score", "pixel_f1", "image_auc", "loss"],
-                   help="score = (pixel_f1 + image_auc) / 2")
+    p.add_argument("--monitor", default="score",
+                   choices=["score", "pixel_f1", "image_auc", "image_tpr_at_fpr02", "loss"],
+                   help="score = (pixel_f1 + image_auc) / 2; image_tpr_at_fpr02 = %%2 yanlış alarmda yakalama oranı")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--mp-context", default="spawn", choices=["spawn", "forkserver", "fork"],
                    help="DataLoader worker başlatma yöntemi. spawn: LMDB/OpenCV durumu worker'lara miras "
@@ -293,6 +323,8 @@ def validate(model: DualStreamForensicNet, loader: DataLoader, criterion: Forens
     metrics["loss"] = float(np.mean(losses)) if losses else float("nan")
     auc = metrics["image_auc"] if not np.isnan(metrics["image_auc"]) else 0.5
     metrics["score"] = (metrics["pixel_f1"] + auc) / 2
+    if np.isnan(metrics["image_tpr_at_fpr02"]):  # val'de tek sınıf: model seçimi piksel F1'e düşer
+        metrics["image_tpr_at_fpr02"] = metrics["pixel_f1"]
     return {f"val/{k}": v for k, v in metrics.items()}
 
 
@@ -349,6 +381,8 @@ def main() -> None:
         cache_dir = run_dir / "splits"
     manifest = build_manifest(args.data_root, args.sources, cache_dir=cache_dir,
                               doctamper_max=args.doctamper_max, seed=args.seed)
+    if args.holdout_issuers or args.holdout_doc_types:
+        manifest = apply_holdout(manifest, args.holdout_issuers, args.holdout_doc_types)
     splits = assign_splits(manifest, seed=args.seed)
     splits.to_csv(run_dir / "splits.csv", index=False)
     train_df, val_df = splits[splits["split"] == "train"], splits[splits["split"] == "val"]
@@ -372,8 +406,16 @@ def main() -> None:
         # Sabit (seed'li) alt küme: epoch'lar arası metrikler karşılaştırılabilir kalır.
         val_df = val_df.sample(n=args.val_samples, random_state=args.seed)
         logger.info("Validasyon her epoch %d görüntülük sabit alt kümeyle yapılacak.", len(val_df))
-    train_ds = ForgeryDataset(train_df, build_transforms(True, args.crop_size, args.jpeg_aug_p, args.crop_nonempty_p),
-                              args.max_side)
+    align8 = "dct" in args.streams
+
+    def train_transforms(jpeg_quality: tuple[int, int] = (50, 100)):
+        return build_transforms(True, args.crop_size, args.jpeg_aug_p, args.crop_nonempty_p,
+                                flip_p=args.flip_aug_p, align8=align8, jpeg_quality=jpeg_quality)
+
+    curriculum = args.jpeg_curriculum > 0 and args.jpeg_aug_p > 0
+    train_ds = ForgeryDataset(train_df, train_transforms((90, 100) if curriculum else (50, 100)), args.max_side)
+    if align8:
+        logger.info("DCT akışı: eğitim kırpmaları JPEG 8x8 ızgarasına hizalı.")
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
     sampler = None
     labels = train_ds.frame["label"].astype(int)
@@ -394,8 +436,11 @@ def main() -> None:
     if args.num_workers > 0:
         workers = dict(num_workers=args.num_workers, multiprocessing_context=args.mp_context,
                        worker_init_fn=worker_init_fn, persistent_workers=True, prefetch_factor=4)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
-                              drop_last=True, pin_memory=device.type == "cuda", **workers)
+    def make_train_loader() -> DataLoader:
+        return DataLoader(train_ds, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
+                          drop_last=True, pin_memory=device.type == "cuda", **workers)
+
+    train_loader = make_train_loader()
     val_workers = {**workers, "num_workers": min(args.num_workers, 2), "prefetch_factor": 2} if workers else {}
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, **val_workers)
     logger.info("DataLoader: %d worker (%s), batch=%d, %d adım/epoch",
@@ -408,15 +453,24 @@ def main() -> None:
     # --- 3) Model, kayıp, optimizasyon -------------------------------------------
     pretrained = bool(args.init) or resume_ckpt is not None
     weights = None if args.encoder_weights.lower() == "none" or pretrained else args.encoder_weights
-    model = DualStreamForensicNet(encoder_name=args.encoder, encoder_weights=weights).to(device)
+    model = DualStreamForensicNet(encoder_name=args.encoder, encoder_weights=weights, streams=args.streams).to(device)
     if resume_ckpt is not None:
         model.load_state_dict(resume_ckpt["model_state"])
     elif args.init:
         state = torch.load(args.init, map_location=device, weights_only=False)["model_state"]
-        model.load_state_dict(state)
-        logger.info("Başlangıç ağırlıkları yüklendi: %s", args.init)
+        # Farklı akışlı ağırlıklar da yüklenebilir (ablasyon, RGB+SRM → +DCT ince ayarı).
+        load_compatible_state(model, state)
+        logger.info("Başlangıç ağırlıkları yüklendi: %s (akışlar: %s)", args.init, args.streams)
     criterion = ForensicLoss(focal_weight=2.0)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    encoder_params = list(model.net.encoder.parameters())
+    encoder_ids = {id(p) for p in encoder_params}
+    other_params = [p for p in model.parameters() if id(p) not in encoder_ids]
+    param_groups = [{"params": encoder_params, "lr": args.lr * args.encoder_lr_mult},
+                    {"params": other_params, "lr": args.lr}]
+    if args.encoder_lr_mult != 1.0:
+        logger.info("Ayrımsal öğrenme oranı: kodlayıcı %g, kod çözücü/kafalar/DCT %g",
+                    args.lr * args.encoder_lr_mult, args.lr)
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
     mode = "min" if args.monitor == "loss" else "max"
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=mode, factor=0.5, patience=3)
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
@@ -425,11 +479,18 @@ def main() -> None:
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
                               "sources": args.sources, "seed": args.seed, "stage": args.stage,
                               "val_lang": args.val_lang, "jpeg_aug_p": args.jpeg_aug_p,
-                              "crop_nonempty_p": args.crop_nonempty_p, "balance": not args.no_balance}
+                              "crop_nonempty_p": args.crop_nonempty_p, "balance": not args.no_balance,
+                              "streams": args.streams, "flip_aug_p": args.flip_aug_p,
+                              "encoder_lr_mult": args.encoder_lr_mult, "jpeg_curriculum": args.jpeg_curriculum,
+                              "holdout_issuers": args.holdout_issuers, "holdout_doc_types": args.holdout_doc_types}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     start_epoch = 1
     if resume_ckpt is not None:
+        if len(resume_ckpt["optimizer_state"]["param_groups"]) != len(optimizer.param_groups):
+            # Ayrımsal LR öncesi (tek gruplu) bir last.pth'den devam: optimizer o yapıyla kurulur.
+            optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=mode, factor=0.5, patience=3)
         optimizer.load_state_dict(resume_ckpt["optimizer_state"])
         scheduler.load_state_dict(resume_ckpt["scheduler_state"])
         scaler.load_state_dict(resume_ckpt["scaler_state"])
@@ -447,14 +508,23 @@ def main() -> None:
                 "scaler_state": scaler.state_dict(), "stopper_state": stopper.state_dict(), "stage": args.stage}
 
     # --- 4) Eğitim döngüsü ---------------------------------------------------------
+    if curriculum and start_epoch > args.jpeg_curriculum:
+        train_ds.transform = train_transforms((50, 100))  # devam: müfredat zaten tamamlanmış
+        train_loader = make_train_loader()
     for epoch in range(start_epoch, args.epochs + 1):
+        if curriculum and epoch == args.jpeg_curriculum + 1:
+            # Kalıcı worker'lar dönüşümün eski kopyasını tutar; yükleyici yeni dönüşümle yeniden kurulur.
+            logger.info("JPEG müfredatı: artırma Q∈[90,100] → Q∈[50,100]")
+            train_ds.transform = train_transforms((50, 100))
+            del train_loader
+            train_loader = make_train_loader()
         logger.info("Epoch %d/%d", epoch, args.epochs)
         start = time.time()
         metrics = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp,
                                   args.log_every)
         logger.info("Validasyon (%d görüntü)...", len(val_ds))
         metrics.update(validate(model, val_loader, criterion, args.crop_size, use_amp))
-        metrics["lr"] = optimizer.param_groups[0]["lr"]
+        metrics["lr"] = optimizer.param_groups[-1]["lr"]  # kod çözücü / kafalar (kodlayıcı: × --encoder-lr-mult)
         metrics["time_s"] = time.time() - start
         tracker.log(epoch, metrics)
 

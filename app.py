@@ -14,6 +14,8 @@ modları ve ``checkpoints/calibration.json`` sıcaklık + eşik kalibrasyonu). S
   4. **PDF yapı analizi (PDF yüklendiğinde)** — düzenleme aracı izi, artımlı kayıt, dijital imza
      kapsamı, gizlenmiş/üst üste yazılmış metin, satır içi font tutarsızlığı (``src/pdf_checker.py``).
   5. **Hibrit karar** — model + OCR + PDF kanıtlarının noisy-OR birleşimi.
+  6. **Açıklanabilirlik (opsiyonel)** — sınıflandırma kafası için Grad-CAM ve gerçek maske yüklenirse
+     TP/FP/FN hata haritası (``src/explain.py``).
 """
 
 from __future__ import annotations
@@ -41,7 +43,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from predict import CLEAN_PIXEL_LIMIT, fuse_doc_score, is_forged, load_calibration, make_overlay, predict
+from predict import (CLEAN_PIXEL_LIMIT, explain_cam, fuse_doc_score, is_forged, load_calibration, make_overlay,
+                     predict)
+from src.explain import cam_overlay, error_counts, error_map
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 from src.pdf_checker import PdfReport, check_pdf
 from src.runtime import cuda_available, easyocr_available, ensure_weights
@@ -199,13 +203,18 @@ def sidebar() -> dict:
                             if ocr_ok else "EasyOCR kurulu değil (`pip install easyocr`); OCR devre dışı.")
         ocr_gpu = st.toggle("OCR için GPU", value=gpu_ok, disabled=not gpu_ok or not use_ocr,
                             help=None if gpu_ok else "CUDA bulunamadı; OCR CPU'da çalışır.")
+
+        st.subheader("🧠 Açıklanabilirlik")
+        use_cam = st.toggle("Grad-CAM (belge skoru)", value=False, disabled=not checkpoints,
+                            help="Sınıflandırma kafasının kararını en çok etkileyen bölgeler. Harita temizken "
+                                 "belge skoru yüksekse yanlış alarmın kaynağını gösterir (CPU'da yavaş).")
     return {"ckpt": ckpt, "mode": mode, "temperature": float(temperature), "threshold": float(threshold),
-            "use_ocr": use_ocr, "ocr_gpu": ocr_gpu}
+            "use_ocr": use_ocr, "ocr_gpu": ocr_gpu, "use_cam": use_cam}
 
 
 def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = None) -> dict:
     result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": [],
-                    "pdf": None, "errors": []}
+                    "pdf": None, "cam": None, "errors": []}
     if pdf_data is not None:
         try:
             result["pdf"] = check_pdf(pdf_data, dpi=PDF_DPI)
@@ -218,6 +227,9 @@ def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = 
                 result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, settings["temperature"],
                                                                      device, settings["mode"])
             result["doc_prob"] = fuse_doc_score(result["raw_doc_prob"], float(result["prob_map"].max()))
+            if settings.get("use_cam"):
+                with st.spinner("Grad-CAM hesaplanıyor..."):
+                    result["cam"] = explain_cam(model, image, config)
         except Exception as exc:  # Bozuk/eksik ağırlık, bellek yetersizliği: OCR yine de çalışabilsin
             result["prob_map"] = None
             result["errors"].append(f"Derin öğrenme analizi başarısız: {exc.__class__.__name__}: {exc}")
@@ -262,6 +274,31 @@ def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
         st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")
         if doc_prob >= threshold and max_pixel < CLEAN_PIXEL_LIMIT:
             st.info("ℹ️ Belge skoru sınırda/yüksek olsa da piksel seviyesinde sahte bölge izine rastlanmadı.")
+
+
+def show_explain(image: np.ndarray, result: dict, threshold: float) -> None:
+    """Grad-CAM ve (gerçek maske yüklenirse) TP/FP/FN hata haritası."""
+    prob_map = result["prob_map"]
+    if prob_map is None:
+        return
+    with st.expander("🧠 Açıklanabilirlik: Grad-CAM ve hata haritası", expanded=result.get("cam") is not None):
+        gt_upload = st.file_uploader("Gerçek sahtecilik maskesi (opsiyonel, PNG; beyaz = sahte)", type=["png"],
+                                     key="gt_mask")
+        cols = st.columns(2)
+        if result.get("cam") is not None:
+            cols[0].image(cam_overlay(image, result["cam"]), use_container_width=True,
+                          caption="Grad-CAM: belge skorunu en çok etkileyen bölgeler (kırmızı = yüksek etki)")
+        else:
+            cols[0].info("Grad-CAM için kenar çubuğundan **Grad-CAM** anahtarını açıp yeniden analiz edin.")
+        if gt_upload is not None:
+            gt = cv2.imdecode(np.frombuffer(gt_upload.getvalue(), np.uint8), cv2.IMREAD_GRAYSCALE)
+            gt = cv2.resize(gt, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST) > 127
+            counts = error_counts(prob_map, gt, threshold)
+            cols[1].image(error_map(image, prob_map, gt, threshold), use_container_width=True,
+                          caption=f"Hata haritası — yeşil: doğru tespit ({counts['tp']} px), kırmızı: yanlış "
+                                  f"alarm ({counts['fp']} px), mavi: kaçırılan ({counts['fn']} px)")
+        else:
+            cols[1].info("Gerçek maske yüklenirse doğru tespit / yanlış alarm / kaçırılan pikseller gösterilir.")
 
 
 def show_content(image: np.ndarray, result: dict) -> None:
@@ -346,7 +383,7 @@ def analysis_tab(settings: dict) -> None:
     # Eşik çıkarım sonucunu değiştirmez (yalnızca görselleştirme/karar); diğer ayarlar değişirse
     # önceki sonuç geçersiz sayılır ve yeniden "Analiz Et" gerekir.
     key = (hashlib.sha1(data).hexdigest(), page, settings["ckpt"], settings["mode"], settings["temperature"],
-           settings["use_ocr"])
+           settings["use_ocr"], settings["use_cam"])
     if st.button("🔎 Analiz Et", type="primary"):
         st.session_state["analysis"] = (key, run_analysis(image, settings, data if is_pdf else None))
 
@@ -361,6 +398,7 @@ def analysis_tab(settings: dict) -> None:
     for message in result.get("errors", []):
         st.warning(message)
     show_visual(image, result, settings["threshold"])
+    show_explain(image, result, settings["threshold"])
     show_content(image, result)
     show_pdf(image, result, page)
     show_verdict(result)
