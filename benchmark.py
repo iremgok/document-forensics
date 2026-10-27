@@ -1,9 +1,15 @@
 """
-Stage B modeli için kapsamlı değerlendirme — ``app.py``'deki "Model Başarımı" sekmesinin veri kaynağı.
+Kapsamlı değerlendirme — ``app.py``'deki "Model Başarımı" sekmesinin ayrıntılı analiz bölümünün veri kaynağı.
 
 Çalıştırma:
-    python benchmark.py                          # varsayılan örneklem (~15 dk, CPU)
+    python benchmark.py                          # Stage E, varsayılan örneklem (~15 dk, CPU)
     python benchmark.py --n-aiforge 200 --ocr    # daha büyük örneklem + OCR kural motoru
+    python benchmark.py --checkpoint checkpoints/finetuned_multilingual_stageB.pth   # karşılaştırma: Stage B
+
+Çıktı klasörü modelin adını taşır (``results/benchmark_<model>``) ve ``meta.json`` checkpoint yolunu kaydeder;
+dashboard sonuçları kenar çubuğunda seçili modelle bu kayıt üzerinden eşleştirir. (Eski ``results/stageB``
+klasörü, 22.10'da ``finetuned_multilingual.pth`` ile üretilmiştir; o tarihte bu dosya bir Stage C ara
+modeliydi — bkz. ``src/model_registry.py``.)
 
 Değerlendirme kümesi (modelin eğitimde görmediği görseller):
   * ``synthetic_test``  — Stage B ``splits.csv`` içindeki sentetik **test** bölümü
@@ -12,7 +18,7 @@ Değerlendirme kümesi (modelin eğitimde görmediği görseller):
     geçmeyen belge gruplarından örneklem (tahrifat türü dosya adından okunur).
   * ``aiforgedoc_ood``  — AIForge-Doc TestingSet (dağılım dışı; sahte + orijinal).
 
-Çıktılar (``--out``, varsayılan ``results/stageB``):
+Çıktılar (``--out``, varsayılan ``results/benchmark_<model>``):
   * ``per_image.csv``      — görsel başına skorlar, GT istatistikleri, süre, JPEG kalitesi.
   * ``pixel_counts.npz``   — görsel × eşik ızgarası için piksel TP/FP/FN/TN sayıları ve eşiği geçen
     en büyük bağlantılı bölgenin sayfa oranı (``max_region``; ``app.is_forged`` piksel koşulu için).
@@ -62,10 +68,10 @@ STD_LUMA_Q50 = np.array([
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Stage B model başarımı değerlendirmesi")
-    p.add_argument("--checkpoint", default="checkpoints/finetuned_multilingual.pth")
+    p = argparse.ArgumentParser(description="Model başarımı değerlendirmesi (dashboard ayrıntılı analiz)")
+    p.add_argument("--checkpoint", default="checkpoints/stageE/best.pth")
     p.add_argument("--mode", choices=("sliding", "resize"), default="sliding")
-    p.add_argument("--out", default="results/stageB")
+    p.add_argument("--out", default=None, help="Varsayılan: results/benchmark_<model> (ör. benchmark_stageE)")
     p.add_argument("--n-synthetic-unseen", type=int, default=40, help="Görülmemiş sentetik görsel sayısı")
     p.add_argument("--n-aiforge", type=int, default=60, help="AIForge-Doc görsel sayısı (yarı sahte, yarı orijinal)")
     p.add_argument("--robust-n", type=int, default=24, help="JPEG dayanıklılık alt kümesi boyutu")
@@ -181,7 +187,8 @@ def run_ocr_rules(image: np.ndarray) -> dict:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     args = parse_args()
-    out = Path(args.out)
+    ckpt = Path(args.checkpoint)
+    out = Path(args.out) if args.out else Path("results") / f"benchmark_{ckpt.parent.name if ckpt.stem in ('best', 'last') else ckpt.stem}"
     out.mkdir(parents=True, exist_ok=True)
 
     model, config = load_model(args.checkpoint, args.device)

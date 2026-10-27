@@ -6,8 +6,8 @@ Dağıtım ortamı (Hugging Face Spaces, Streamlit Community Cloud, Docker) içi
 
   - ``FORENSICS_WEIGHTS_REPO`` — Hugging Face model deposu (ör. ``kullanici/document-forensics``);
     özel depo için ``HF_TOKEN`` da tanımlanmalıdır.
-  - ``FORENSICS_WEIGHTS_URL``  — dosyaların bulunduğu temel URL (``<url>/finetuned_multilingual.pth``,
-    ``<url>/stageE/best.pth``).
+  - ``FORENSICS_WEIGHTS_URL``  — dosyaların bulunduğu temel URL (``<url>/stageE/best.pth``,
+    ``<url>/finetuned_multilingual_stageB.pth``).
 
   Depodaki/URL'deki dosya düzeni ``WEIGHT_FILES`` ile aynıdır; alt klasörlü yollar (``stageE/...``)
   ``checkpoints/`` altında aynı alt klasöre indirilir. Stage E'nin kalibrasyonu kendi klasöründedir
@@ -26,13 +26,15 @@ import os
 import urllib.request
 from pathlib import Path
 
+from src.model_registry import DEPLOY_FILES
+
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_DIR = Path("checkpoints")
-WEIGHT_FILES = (
-    "stageE/best.pth", "stageE/calibration.json",                          # varsayılan model (Stage E)
-    "finetuned_multilingual.pth", "base_doctamper.pth", "calibration.json",  # karşılaştırma için Stage B / A
-)
+#: İndirilen dosyalar: varsayılan Stage E + karşılaştırma için gerçek Stage B
+#: (``finetuned_multilingual_stageB.pth``) ve Stage A. ``finetuned_multilingual.pth`` bir Stage C ara modeliyle
+#: ezildiği için artık dağıtılmaz (bkz. ``src/model_registry.py``).
+WEIGHT_FILES = DEPLOY_FILES
 
 
 def ensure_weights(dest: Path = CHECKPOINT_DIR) -> dict[str, str]:

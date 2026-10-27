@@ -115,6 +115,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--external-scores", default=None, help="Dış modelin belge skorları CSV'si (key,score)")
     p.add_argument("--ocr", action="store_true",
                    help="Test/OOD görüntülerinde OCR kural motorunu da çalıştır (ocr_risk sütunu; OCR ablasyonu için)")
+    p.add_argument("--temperature", type=float, default=None,
+                   help="Sabit sıcaklık (val'de öğrenmek yerine). Uygulamadaki kararları yeniden üretmek için "
+                        "modelin calibration.json değeriyle birlikte --no-calibration --threshold kullanın.")
     p.add_argument("--threshold", type=float, default=0.5,
                    help="Kalibrasyon yapılmadığında (dış model / --no-calibration) kullanılan karar eşiği")
     p.add_argument("--out", default="results")
@@ -460,7 +463,8 @@ def main() -> None:
                        "örtüşen SROIE dosyaları splits.csv'de zaten çıkarılmıştır.")
 
     # --- Kalibrasyon: yalnızca val (sıcaklık + karar eşiği) ----------------------------
-    temperature, threshold = 1.0, args.threshold
+    temperature = args.temperature if args.temperature is not None else 1.0
+    threshold = args.threshold
     calibration: dict[str, float] = {}
     if not args.no_calibration:
         val = splits[splits["split"] == "val"]
@@ -470,8 +474,11 @@ def main() -> None:
         if val["label"].nunique() == 2:
             logger.info("Sıcaklık ölçekleme val kümesinde öğreniliyor (%d görüntü)...", len(val))
             val_pred = predict_frame(predictor, val)
-            temperature = fit_temperature(val_pred["doc_logit"].to_numpy(), val_pred["label"].to_numpy())
-            logger.info("Öğrenilen sıcaklık T = %.3f", temperature)
+            if args.temperature is None:
+                temperature = fit_temperature(val_pred["doc_logit"].to_numpy(), val_pred["label"].to_numpy())
+                logger.info("Öğrenilen sıcaklık T = %.3f", temperature)
+            else:
+                logger.info("Sabit sıcaklık T = %.3f (--temperature); yalnızca eşik val'de seçilecek", temperature)
             if abs(temperature - 1.0) > 1e-6:
                 logger.info("Eşik seçimi için val, T=%.3f piksel haritalarıyla yeniden işleniyor...", temperature)
                 val_pred = predict_frame(predictor, val, temperature)
@@ -537,7 +544,10 @@ def main() -> None:
 
     summary = pd.DataFrame(report).T
     summary.to_csv(out_dir / "summary.csv")
-    (out_dir / "summary.json").write_text(json.dumps({"temperature": temperature, "threshold": threshold,
+    source = {"checkpoint": Path(args.checkpoint).as_posix() if args.checkpoint else None,
+              "external_maps": args.external_maps, "splits": Path(args.splits).as_posix(),
+              "created": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
+    (out_dir / "summary.json").write_text(json.dumps({**source, "temperature": temperature, "threshold": threshold,
                                                       **calibration, "results": report},
                                                      indent=2, default=float), encoding="utf-8")
     print(summary.round(4).to_string())

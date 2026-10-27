@@ -53,7 +53,10 @@ INPUT_SIZE = 512
 DEFAULT_IMAGES = ("test_document.jpeg", "test_document.jpg", "test_document.png")
 IMAGE_SUFFIXES = (".jpeg", ".jpg", ".png", ".bmp", ".tif", ".tiff", ".webp")
 CALIBRATION_PATHS = (Path("checkpoints/calibration.json"), Path("checkpoints/synthetic/calibration.json"))
-DEFAULT_CALIBRATION = {"temperature": 6.389, "optimal_threshold": 0.35}
+#: Kalibrasyon dosyası olmayan modeller için nötr varsayılan (kalibrasyonsuz logit, eşik 0.5). Eski 6.389 / 0.35
+#: çifti Stage B'nin bir ara benchmark'ına aitti ve başka modellere uygulandığında yanıltıcıydı; her modelin
+#: kalibrasyonu ``evaluate.py`` ile kendi val kümesinde üretilmelidir.
+DEFAULT_CALIBRATION = {"temperature": 1.0, "optimal_threshold": 0.5}
 CLEAN_PIXEL_LIMIT = 0.05  # Bu değerin altındaki maks. piksel olasılığı "sahte bölge yok" sayılır
 DOC_WEIGHT = 0.7          # Temiz haritada belge skorunun ağırlığı (kalanı maks. piksel olasılığı)
 MIN_REGION_FRACTION = 0.0005  # Piksel koşulu için asgari bağlantılı bölge alanı (sayfanın %0.05'i)
@@ -123,7 +126,8 @@ def load_calibration(explicit: str | None = None, checkpoint: str | Path | None 
             path = CALIBRATION_PATHS[0]
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(DEFAULT_CALIBRATION, indent=2), encoding="utf-8")
-            logger.info("Kalibrasyon dosyası bulunamadı, varsayılanlarla oluşturuldu: %s", path)
+            logger.warning("Kalibrasyon dosyası bulunamadı; nötr varsayılanlarla (T=1, eşik=0.5) oluşturuldu: %s. "
+                           "Modelin kendi kalibrasyonu için: python evaluate.py --checkpoint ... --splits ...", path)
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     temperature = float(data.get("temperature", DEFAULT_CALIBRATION["temperature"]))
     threshold = float(data.get("optimal_threshold", data.get("threshold", DEFAULT_CALIBRATION["optimal_threshold"])))

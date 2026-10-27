@@ -46,18 +46,11 @@ import streamlit as st
 from predict import (CLEAN_PIXEL_LIMIT, explain_cam, fuse_doc_score, is_forged, load_calibration, make_overlay,
                      predict)
 from src.explain import cam_overlay, error_counts, error_map
+from src.model_registry import EXPERIMENTAL, RECOMMENDED, checkpoint_summary, list_models, reliability_warning
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 from src.pdf_checker import PdfReport, check_pdf
 from src.runtime import cuda_available, easyocr_available, ensure_weights
 
-CHECKPOINT_DIRS = (Path("checkpoints"), Path("runs"))
-PRESET_CHECKPOINTS = {
-    "checkpoints/stageE/best.pth": "Stage E — izli sentetik + gerçek belgeler (dengeli)",
-    "checkpoints/stageD/best.pth": "Stage D — Türkçe sentetik v3 ince ayar",
-    "checkpoints/finetuned_multilingual.pth": "Stage B — finetuned_multilingual",
-    "checkpoints/base_doctamper.pth": "Stage A — base_doctamper",
-    "checkpoints/stageC/best.pth": "Stage C — Türkçe ince ayar (TR val ile seçilmiş)",
-}
 MODES = {"sliding": "Kayan Pencere (varsayılan)", "resize": "512x512 Hızlı Önizleme"}
 PDF_DPI = 200
 
@@ -72,14 +65,19 @@ def fetch_weights() -> dict[str, str]:
     return ensure_weights()
 
 
-def find_checkpoints() -> list[str]:
-    """Önce Stage E / D / B / A / C ağırlıkları (varsa, bu sırayla), ardından ``checkpoints/`` ve ``runs/`` altındaki
-    diğer boş olmayan .pth dosyaları (en yeni önce)."""
-    presets = [p for p in PRESET_CHECKPOINTS if Path(p).is_file()]
-    others = [p for d in CHECKPOINT_DIRS if d.is_dir() for p in d.rglob("*.pth") if p.stat().st_size > 0]
-    others = [p.as_posix() for p in sorted(others, key=lambda p: p.stat().st_mtime, reverse=True)
-              if p.as_posix() not in presets]
-    return presets + others
+@st.cache_data(show_spinner=False)
+def find_models(include_experimental: bool) -> dict[str, tuple[str, str, str]]:
+    """Diskteki modeller: {yol: (etiket, durum, not)} — sıra ve etiketler ``src/model_registry.py``'den."""
+    return {m.path: (m.label, m.status, m.note) for m in list_models(include_experimental=include_experimental)}
+
+
+@st.cache_data(show_spinner=False)
+def model_warning(path: str) -> Optional[str]:
+    """Seçili modelin validasyon metriklerine göre güvenilirlik uyarısı (checkpoint içinden okunur)."""
+    try:
+        return reliability_warning(checkpoint_summary(path))
+    except Exception:
+        return None
 
 
 @st.cache_resource(show_spinner="Model yükleniyor...")
@@ -174,11 +172,20 @@ def sidebar() -> dict:
         failed = {k: v for k, v in fetch_weights().items() if v.startswith("indirilemedi")}
         if failed:
             st.warning("Bazı ağırlıklar indirilemedi:\n\n" + "\n".join(f"- `{k}`: {v}" for k, v in failed.items()))
-        checkpoints = find_checkpoints()
-        ckpt = st.selectbox("Model", checkpoints, format_func=lambda p: PRESET_CHECKPOINTS.get(p, p)) \
-            if checkpoints else None
-        if not checkpoints:
+        show_experimental = st.toggle("Deneysel / eski modelleri de göster", value=False,
+                                      help="Ara ve deneme ağırlıkları (Stage C/D, runs/fast_run). Validasyonda "
+                                           "neredeyse her belgeye 'sahte' demişlerdir; karar için kullanmayın.")
+        models = find_models(show_experimental)
+        ckpt = st.selectbox("Model", list(models), format_func=lambda p: models[p][0]) if models else None
+        if not models:
             st.warning("`checkpoints/` veya `runs/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılabilir.")
+        elif ckpt:
+            label, status, note = models[ckpt]
+            warning = model_warning(ckpt)
+            if status == EXPERIMENTAL or (warning and status != RECOMMENDED):
+                st.error(f"⚠️ Bu model karar için güvenilir değil: {warning or note}")
+            elif note:
+                st.caption(note)
         mode = st.radio("Çıkarım modu", list(MODES), format_func=MODES.get,
                         help="Kayan pencere SRM gürültü istatistiğini korur; 512x512 mod daha hızlıdır "
                              "ama büyük belgelerde ayrıntı kaybeder.")
@@ -205,7 +212,7 @@ def sidebar() -> dict:
                             help=None if gpu_ok else "CUDA bulunamadı; OCR CPU'da çalışır.")
 
         st.subheader("🧠 Açıklanabilirlik")
-        use_cam = st.toggle("Grad-CAM (belge skoru)", value=False, disabled=not checkpoints,
+        use_cam = st.toggle("Grad-CAM (belge skoru)", value=False, disabled=not models,
                             help="Sınıflandırma kafasının kararını en çok etkileyen bölgeler. Harita temizken "
                                  "belge skoru yüksekse yanlış alarmın kaynağını gösterir (CPU'da yavaş).")
     return {"ckpt": ckpt, "mode": mode, "temperature": float(temperature), "threshold": float(threshold),
@@ -418,7 +425,7 @@ def main() -> None:
     with tab_metrics:
         from src.dashboard import render_dashboard
 
-        render_dashboard(settings["threshold"], settings["temperature"], tuple(PRESET_CHECKPOINTS))
+        render_dashboard(settings["threshold"], settings["temperature"], settings["ckpt"])
 
 
 if __name__ == "__main__":

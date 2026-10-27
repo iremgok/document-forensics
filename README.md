@@ -156,8 +156,11 @@ dayanıklılık eğrisiyle ölçülür.
 
 Bu README'nin başındaki YAML bloğu Space ayarlarıdır (`sdk: docker`, `app_port: 7860`).
 
-1. Ağırlıkları bir **HF model deposuna** yükleyin (`finetuned_multilingual.pth`, `base_doctamper.pth`,
-   `calibration.json`). `*.pth` dosyaları `.gitignore` nedeniyle Space deposuna girmez.
+1. Ağırlıkları bir **HF model deposuna** yükleyin: `stageE/best.pth`, `stageE/calibration.json` (varsayılan model),
+   `finetuned_multilingual_stageB.pth`, `base_doctamper.pth`, `calibration.json` (karşılaştırma). Liste
+   `src/model_registry.py::DEPLOY_FILES`'tadır. `*.pth` dosyaları `.gitignore` nedeniyle Space deposuna girmez.
+   **Not:** `finetuned_multilingual.pth` 21.10'da bir Stage C ara modeliyle (val FPR 1.00) ezildiği için artık
+   dağıtılmaz; gerçek Stage B `finetuned_multilingual_stageB.pth`'tir.
 2. Space → *Settings → Variables*: `FORENSICS_WEIGHTS_REPO=<kullanici>/<model-deposu>`
    (özel depo ise *Secrets*'a `HF_TOKEN`). Alternatif: `FORENSICS_WEIGHTS_URL=<dosyaların temel URL'si>`.
 3. Depoyu Space'e gönderin; `Dockerfile` CPU-only PyTorch kurar ve Streamlit'i 7860'ta başlatır.
@@ -176,12 +179,17 @@ docker run -p 7860:7860 -e FORENSICS_WEIGHTS_REPO=<kullanici>/<model-deposu> doc
 | EasyOCR modeli indirilemedi / OCR hata verdi | Uyarı gösterilir, görsel analiz sonuçları yine sunulur |
 | Ağırlık yok / indirilemedi | Uyarı gösterilir; model seçimi boş, yalnızca OCR analizi |
 | Ağırlık bozuk / bellek yetersiz | Derin öğrenme adımı uyarıyla atlanır, uygulama çökmez |
-| `results/stageB/` yok | Model Başarımı sekmesi `python benchmark.py` komutunu gösterir |
+| Seçili modelin sonucu yok | Model Başarımı sekmesi `python evaluate.py` / `python benchmark.py` komutunu gösterir |
 
 **Streamlit Community Cloud:** `packages.txt` OpenCV'nin sistem kütüphanelerini kurar. Ancak ücretsiz katmanın
 ~1 GB belleği EfficientNet-B4 + EasyOCR için genellikle yetersizdir ve `requirements.txt`'teki `torch` Linux'ta
 CUDA tekerleğini indirir; bu nedenle HF Spaces (16 GB CPU) önerilir. `results/` `.gitignore` içinde olduğundan
-değerlendirme panelinin canlıda görünmesi için `results/stageB/` (~0.5 MB) depoya ayrıca eklenmelidir.
+değerlendirme panelinin canlıda görünmesi için Stage E'nin `results/` çıktıları (`summary.json`, `breakdown_*.csv`,
+`results/benchmark_stageE/`; birkaç MB) depoya ayrıca eklenmelidir.
+
+**Model listesi:** uygulama yalnızca `src/model_registry.py`'deki önerilen (Stage E) ve karşılaştırma (Stage B, A)
+modellerini gösterir. Deneysel / ara ağırlıklar (Stage C/D, `runs/fast_run`) kenar çubuğundaki
+"Deneysel / eski modelleri de göster" anahtarıyla listelenir ve seçildiklerinde güvenilmezlik uyarısı çıkar.
 
 ---
 
@@ -270,6 +278,8 @@ TP/FP/FN hata haritaları, `--ocr` OCR kural motoru riskini (`ocr_risk`) de kayd
 | `tools/make_human_masks.py` | Gönüllü (insan eliyle yapılmış) sahtecilik çiftlerinden maske → `data/9_human_forged` (**yalnızca test**) |
 | `tools/diffusion_inpaint.py` | Gerçek difüzyon inpainting ile YZ sahteciliği → `data/10_diffusion_forged` (test grupları korunur) |
 | `tools/ocr_eval.py` | OCR alan çıkarma doğruluğu, kural bazında yanlış alarm / tetiklenme oranı, EasyOCR ↔ PaddleOCR |
+| `tools/splits_from_predictions.py` | Kaggle'da üretilmiş `predictions_*.csv`'den yerel test bölmesi (eğitimde görülen belgeler teste karışmaz) |
+| `src/model_registry.py` | Ağırlık dosyalarının gerçek içeriğine göre etiketleri; önerilen / karşılaştırma / deneysel ayrımı |
 
 **Ablasyon ve iyileştirme seçenekleri (`train.py`):**
 
@@ -280,6 +290,8 @@ python train.py --stage stageE --streams srm         --run-dir checkpoints/abl_s
 python train.py --stage stageE --streams rgb+srm     --run-dir checkpoints/abl_rgbsrm
 # DCT (JPEG) akışı + kayıpsız çevirme + ayrımsal LR + JPEG müfredatı + çalışma noktasına göre model seçimi
 python train.py --stage stageE --streams rgb+srm+dct --flip-aug-p 0.5 --encoder-lr-mult 0.1     --jpeg-curriculum 3 --monitor image_tpr_at_fpr02 --init checkpoints/stageE/best.pth --run-dir checkpoints/stageF
+# Zayıf sahtecilik türlerini daha sık örnekle (sahte sınıfın toplam payı değişmez)
+python train.py --stage stageE --init checkpoints/stageE/best.pth --lr 3e-5     --type-weights copy_move=3 digit_change=3 delete=2 --run-dir checkpoints/stageF
 # Görülmemiş kurum / belge tipine genelleme
 python train.py --stage stageE --holdout-issuers garanti   --run-dir checkpoints/holdout_garanti
 python train.py --stage stageE --holdout-doc-types fis     --run-dir checkpoints/holdout_fis
@@ -291,6 +303,14 @@ for s in 42 43 44; do python train.py --stage stageE --seed $s --run-dir checkpo
   model ilk adımda birebir aynı çıktıyı verir. Eğitim kırpmaları JPEG 8x8 ızgarasına hizalanır. Uzun kenarı
   `max_side`'dan büyük olup küçültülen görüntülerde ve PNG ekran görüntülerinde DCT akışı katkı vermez.
 * `--init` farklı akışlı bir ağırlıktan uyumlu yüklenir (6 → 3 kanal ilk konvolüsyon dilimlenir).
+
+**Uygulamadaki kararları yerelde yeniden üretmek (Kaggle'daki test bölmesiyle):**
+
+```bash
+python tools/splits_from_predictions.py --predictions "results/predictions_test_*.csv"     --out results/protocol/stageE_kaggle_test.csv
+python evaluate.py --checkpoint checkpoints/stageE/best.pth --splits results/protocol/stageE_kaggle_test.csv     --no-calibration --temperature 4.1956 --threshold 0.77 --error-maps 5 --out results/stageE_local
+python ablation_decision.py --results results/stageE_local
+```
 
 **Baseline akışı (TruFor örneği):**
 
