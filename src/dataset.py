@@ -336,6 +336,7 @@ def _manifest_synthetic(root: Path, for_training: bool) -> pd.DataFrame:
         "fixed_split": "" if for_training else "ood",
         "lang": meta["lang"] if "lang" in meta else None,
         "doc_type": meta["doc_type"] if "doc_type" in meta else None,
+        "tamper_type": meta["tamper_type"] if "tamper_type" in meta else None,
     })
 
 
@@ -355,6 +356,7 @@ def _manifest_real_forged(root: Path, for_training: bool) -> pd.DataFrame:
         "fixed_split": "" if for_training else "ood",
         "lang": meta["lang"],
         "doc_type": meta["doc_type"] if "doc_type" in meta else None,
+        "tamper_type": meta["tamper_type"] if "tamper_type" in meta else None,
     })
 
 
@@ -379,6 +381,7 @@ def _manifest_human_forged(root: Path) -> pd.DataFrame:
         "fixed_split": "test",
         "lang": meta["lang"] if "lang" in meta else None,
         "doc_type": meta["doc_type"] if "doc_type" in meta else None,
+        "tamper_type": meta["tamper_type"] if "tamper_type" in meta else None,
     })
 
 

@@ -45,6 +45,8 @@ Ablasyon ve iyileştirme seçenekleri:
   * ``--holdout-issuers`` / ``--holdout-doc-types``: bir kurumu / belge tipini tamamen teste ayırır
     (görülmemiş şablona genelleme).
   * ``--monitor image_tpr_at_fpr02``: model seçimi uygulamadaki çalışma noktasına göre (%2 yanlış alarmda TPR).
+  * ``--type-weights copy_move=3 digit_change=3 delete=2``: zayıf sahtecilik türlerini sahte sınıf içinde
+    daha sık örnekler (Stage E kırılımında tespit oranı < %50 olan türler).
   * Ana sonuçlar için farklı ``--seed`` değerleriyle (ör. 42, 43, 44) en az 3 tekrar yapılıp
     ortalama ± standart sapma raporlanmalıdır.
 
@@ -64,6 +66,8 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageE --streams rgb+srm+dct --flip-aug-p 0.5 --encoder-lr-mult 0.1 \
         --jpeg-curriculum 3 --monitor image_tpr_at_fpr02 --run-dir checkpoints/stageF  # iyileştirilmiş model
     python train.py --stage stageE --holdout-issuers garanti --run-dir checkpoints/holdout_garanti
+    python train.py --stage stageE --init checkpoints/stageE/best.pth --streams rgb+srm+dct \
+        --type-weights copy_move=3 digit_change=3 delete=2 --lr 3e-5 --run-dir checkpoints/stageF   # Stage F
 """
 
 from __future__ import annotations
@@ -151,6 +155,9 @@ def parse_args() -> argparse.Namespace:
                    help="Bu kurumların (real:<kurum>/...) tüm belgelerini test kümesine ayır")
     p.add_argument("--holdout-doc-types", nargs="*", default=[],
                    help="Bu belge tiplerinin (doc_type sütunu) tüm belgelerini test kümesine ayır")
+    p.add_argument("--type-weights", nargs="*", default=[],
+                   help="Sahtecilik türü örnekleme ağırlıkları, ör. copy_move=3 digit_change=3 delete=2. Sahte "
+                        "sınıfın toplam payı değişmez; zayıf türler epoch'ta daha sık görülür (diğerleri 1).")
     p.add_argument("--no-balance", action="store_true",
                    help="Orijinal/sahte 50/50 dengeli örneklemeyi kapat (veri setindeki oranla örnekle)")
     p.add_argument("--samples-per-epoch", type=int, default=20000,
@@ -191,6 +198,40 @@ def apply_stage_presets(args: argparse.Namespace) -> argparse.Namespace:
     if args.resume and Path(args.resume).is_dir():
         args.resume = str(Path(args.resume) / "last.pth")
     return args
+
+
+def parse_type_weights(items: list[str]) -> dict[str, float]:
+    """``["copy_move=3", "digit_change=2"]`` → ``{"copy_move": 3.0, "digit_change": 2.0}``."""
+    out = {}
+    for item in items:
+        for part in item.split(","):
+            if part.strip():
+                name, _, value = part.partition("=")
+                out[name.strip()] = float(value)
+    return out
+
+
+def sampling_weights(frame: pd.DataFrame, balance: bool = True,
+                     type_weights: Optional[dict[str, float]] = None) -> np.ndarray:
+    """Örnek başına çekilme ağırlıkları (toplam 1).
+
+    * ``balance``: orijinal ve sahte sınıflar toplam ağırlığın yarısını alır (50/50).
+    * ``type_weights``: sahte sınıf **içinde** türlere göre ağırlık (ör. ``copy_move`` 3 kat); sahte sınıfın
+      toplam payı değişmez. Belirtilmeyen türlerin ağırlığı 1'dir.
+    """
+    labels = frame["label"].astype(int)
+    per_row = pd.Series(1.0, index=frame.index)
+    if type_weights and "tamper_type" in frame:
+        per_row = frame["tamper_type"].map(type_weights).fillna(1.0).astype(float)
+        per_row[labels == 0] = 1.0
+    if balance and labels.nunique() == 2:
+        weights = pd.Series(0.0, index=frame.index)
+        for cls in (0, 1):
+            sel = labels == cls
+            weights[sel] = 0.5 * per_row[sel] / per_row[sel].sum()
+    else:
+        weights = per_row / per_row.sum()
+    return weights.to_numpy()
 
 
 def seed_everything(seed: int) -> None:
@@ -419,13 +460,19 @@ def main() -> None:
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
     sampler = None
     labels = train_ds.frame["label"].astype(int)
-    if not args.no_balance and labels.nunique() == 2:
-        # Her sınıf toplam ağırlığın yarısını alır → epoch'ta orijinal/sahte ≈ 50/50 (yerine koyarak).
-        weights = labels.map(0.5 / labels.value_counts()).to_numpy()
+    type_weights = parse_type_weights(args.type_weights)
+    if (not args.no_balance and labels.nunique() == 2) or type_weights:
+        weights = sampling_weights(train_ds.frame, balance=not args.no_balance, type_weights=type_weights)
         n_samples = args.samples_per_epoch if args.samples_per_epoch > 0 else len(train_ds)
         sampler = WeightedRandomSampler(torch.as_tensor(weights, dtype=torch.double), n_samples, replacement=True)
-        logger.info("Dengeli örnekleme: epoch başına %d görüntü, orijinal/sahte ≈ 50/50 (veri setinde %d / %d).",
-                    n_samples, int((labels == 0).sum()), int((labels == 1).sum()))
+        if not args.no_balance and labels.nunique() == 2:
+            logger.info("Dengeli örnekleme: epoch başına %d görüntü, orijinal/sahte ≈ 50/50 (veri setinde %d / %d).",
+                        n_samples, int((labels == 0).sum()), int((labels == 1).sum()))
+        if type_weights:
+            share = pd.Series(weights, index=train_ds.frame.index).groupby(
+                train_ds.frame.get("tamper_type", pd.Series("?", index=train_ds.frame.index)).fillna("?")).sum()
+            logger.info("Tür ağırlıklı örnekleme %s → epoch payları: %s", type_weights,
+                        ", ".join(f"{k}=%{v * 100:.1f}" for k, v in share.sort_values(ascending=False).items()))
     elif 0 < args.samples_per_epoch < len(train_ds):
         # Her epoch eğitim kümesinden yinelemesiz yeni bir rastgele örneklem çekilir.
         sampler = RandomSampler(train_ds, replacement=False, num_samples=args.samples_per_epoch)
@@ -482,7 +529,8 @@ def main() -> None:
                               "crop_nonempty_p": args.crop_nonempty_p, "balance": not args.no_balance,
                               "streams": args.streams, "flip_aug_p": args.flip_aug_p,
                               "encoder_lr_mult": args.encoder_lr_mult, "jpeg_curriculum": args.jpeg_curriculum,
-                              "holdout_issuers": args.holdout_issuers, "holdout_doc_types": args.holdout_doc_types}
+                              "holdout_issuers": args.holdout_issuers, "holdout_doc_types": args.holdout_doc_types,
+                              "type_weights": type_weights}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     start_epoch = 1

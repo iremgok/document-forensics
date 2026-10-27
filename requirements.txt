@@ -24,3 +24,5 @@ huggingface-hub>=0.20 # Dağıtımda ağırlıkların HF Hub'dan indirilmesi (sr
 # --- Opsiyonel ---
 # tensorboard>=2.14   # Kuruluysa train.py metrikleri TensorBoard'a da yazar
 # lmdb>=1.4           # Yalnızca DocTamper LMDB dışa aktarımı için (src/dataset.py)
+# diffusers>=0.27 transformers accelerate   # tools/diffusion_inpaint.py (GPU)
+# paddleocr paddlepaddle                    # tools/ocr_eval.py --engine paddle (PaddleOCR 2.x API)
