@@ -10,16 +10,31 @@ Kurallar (sızıntı önleme):
     yalnızca orijinal belgelerden oluşan kümelerde (SROIE) AUC tanımsızdır ve
     yanlış alarm oranı (FPR) raporlanır.
 
-Karar eşiği
------------
-Uygulama bir belgeye ``predict.is_forged`` kuralıyla (belge skoru + piksel bölgesi) "sahte" der.
-Eşik, val kümesinde bu kuralın **orijinal belgelerdeki yanlış alarm oranı** ``--target-fpr``'ı
-(varsayılan %5) aşmayacak şekilde, bu koşulda sahte belgeleri en çok yakalayan değer olarak seçilir
-ve sıcaklıkla birlikte ``<checkpoint klasörü>/calibration.json``'a yazılır. Uygulama ve
-``predict.py`` bu dosyayı modelin kendi klasöründen okur.
+Kalibrasyon ve karar eşikleri (ayrı belge / piksel kalibrasyonu)
+---------------------------------------------------------------
+Uygulama bir belgeye ``predict.is_forged`` kuralıyla (belge koşulu + piksel bölgesi koşulu) "sahte" der.
+Belge skoru ile piksel haritası farklı ölçeklerde aşırı özgüvenlidir; tek bir sıcaklık ikisine birden
+uygulanınca (eski şema: T≈4.2) piksel eşiği 0.77 ham olasılıkta ≈0.994'e denk gelir. Bu yüzden val'de:
 
-Piksel olasılıkları uygulamadaki gibi sıcaklıkla ölçeklendiği için sıcaklık öğrenildikten sonra
-val kümesi o sıcaklıkla bir kez daha işlenir (T = 1 ise tekrar edilmez).
+1. **Belge sıcaklığı** ``doc_temperature``: belge logit'lerinin NLL'i ile (``fit_temperature``).
+2. **Piksel sıcaklığı** ``pixel_temperature`` (``--pixel-temperature``): ``fit`` (varsayılan) → val'deki
+   sahte belgelerden (maskesi olanlar) düzgün rastgele örneklenen piksellerin ham logit'leri üzerinden NLL;
+   ``1`` → sabit 1; ``doc`` → belge sıcaklığıyla aynı (eski davranış).
+3. ``(doc_threshold, pixel_threshold)`` çifti ızgara aramasıyla **birlikte**: val orijinallerinde kuralın
+   yanlış alarm oranı ``--target-fpr``'ı (varsayılan %5) aşmayacak şekilde TPR'yi en büyükleyen çift
+   (``predict.select_operating_point``).
+
+Val'de piksel maskesi olan sahte yoksa piksel tarafı T=1 ve tek eşiğe (belge eşiği = piksel eşiği; eski
+davranış) düşer ve uyarı verilir. Sonuç ``predict.calibration_path_for(checkpoint)`` yoluna (``best.pth``
+için klasördeki ``calibration.json``) yeni şemayla yazılır; val kümesi yoksa **hiçbir dosya yazılmaz**.
+
+``--from-calibration``: hiçbir şey öğrenmeden modelin mevcut kalibrasyon dosyasını (yeni ya da eski şema)
+uygular; dosya val'de öğrenilmemişse sonuçlar "kalibre edilmemiş" olarak işaretlenir (``summary.json`` →
+``calibrated``). Val kümesi yerelde olmayan modelleri aynı test bölmesinde karşılaştırmak içindir.
+
+Test kümelerinde model tek geçişte birden çok piksel sıcaklığıyla çalıştırılır (kalibre piksel T'si,
+belge T'si ve 1); ``arrays_*.npz`` bunların bölge oranlarını taşır ve ``ablation_decision.py`` "tek T
+(eski)" ile "ayrı kalibrasyon"u yeniden çıkarım yapmadan karşılaştırır.
 
 Sahtecilik türüne göre kırılım
 ------------------------------
@@ -43,6 +58,8 @@ Ek metrikler ve çıktılar
   ``ablation_decision.py`` karar kuralı ve havuzlama ablasyonlarını modeli yeniden çalıştırmadan bunlardan yapar.
 * ``--error-maps N``: her küme için en kötü N yanlış alarm, N kaçırılan ve N doğru tespit için
   TP/FP/FN hata haritaları (``error_maps/<bölüm>_<kaynak>/``).
+* ``--copymove``: belge içi kopyala-taşı kanıt modülü (``src/copymove.py``) her test görüntüsünde çalışır;
+  ``copymove_risk`` sütunu ve ``ablation_decision.py``'de "copy-move modülü açık/kapalı" satırı için.
 
 Dış modeller (baseline)
 -----------------------
@@ -73,12 +90,13 @@ import numpy as np
 import pandas as pd
 import torch
 
-from predict import decide_forged, fuse_doc_score, largest_region_fraction
-from src.dataset import ForgeryDataset, build_transforms, image_key, read_image_rgb, read_mask
+from predict import (MIN_REGION_FRACTION, Calibration, calibration_path_for, decide_forged, fuse_doc_score,
+                     largest_region_fraction, load_calibration_info, select_operating_point)
+from src.dataset import ForgeryDataset, build_transforms, image_key, limit_long_side, read_image_rgb, read_mask
 from src.explain import error_map
 from src.metrics import (PixelMetrics, binary_decision_metrics, bootstrap_ci, expected_calibration_error,
                          fit_temperature, image_level_metrics, roc_auc, sigmoid, tpr_at_fpr)
-from src.models import load_model, sliding_window_predict
+from src.models import load_model, sliding_window_maps
 
 logger = logging.getLogger("evaluate")
 
@@ -116,10 +134,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ocr", action="store_true",
                    help="Test/OOD görüntülerinde OCR kural motorunu da çalıştır (ocr_risk sütunu; OCR ablasyonu için)")
     p.add_argument("--temperature", type=float, default=None,
-                   help="Sabit sıcaklık (val'de öğrenmek yerine). Uygulamadaki kararları yeniden üretmek için "
-                        "modelin calibration.json değeriyle birlikte --no-calibration --threshold kullanın.")
+                   help="Sabit belge sıcaklığı (val'de öğrenmek yerine). Uygulamadaki kararları yeniden üretmek için "
+                        "--from-calibration kullanın.")
+    p.add_argument("--pixel-temperature", default="fit",
+                   help="Piksel sıcaklığı: 'fit' (val sahtelerinde piksel NLL), 'doc' (belge T'siyle aynı; eski "
+                        "davranış) ya da sayı (ör. 1)")
     p.add_argument("--threshold", type=float, default=0.5,
-                   help="Kalibrasyon yapılmadığında (dış model / --no-calibration) kullanılan karar eşiği")
+                   help="Kalibrasyon yapılmadığında (dış model / --no-calibration) kullanılan belge eşiği")
+    p.add_argument("--pixel-threshold", type=float, default=None,
+                   help="Kalibrasyon yapılmadığında piksel (bölge) eşiği (varsayılan: --threshold)")
+    p.add_argument("--from-calibration", action="store_true",
+                   help="Öğrenme yapma; modelin mevcut calibration.json dosyasını (yeni ya da eski şema) uygula")
+    p.add_argument("--calibration-file", default=None,
+                   help="--from-calibration için açık dosya yolu (varsayılan: predict.load_calibration_info araması)")
+    p.add_argument("--copymove", action="store_true",
+                   help="Test/OOD görüntülerinde kopyala-taşı kanıt modülünü de çalıştır (copymove_risk sütunu)")
     p.add_argument("--out", default="results")
     return p.parse_args()
 
@@ -146,11 +175,18 @@ class Predictor:
         return self.config.get("max_side", 1600) if self.model is not None else 10**9
 
     @torch.no_grad()
-    def __call__(self, image: torch.Tensor, path: str, temperature: float = 1.0
-                 ) -> tuple[np.ndarray, float, np.ndarray]:
+    def __call__(self, image: torch.Tensor, path: str, temperatures: tuple[float, ...] = (1.0,),
+                 logit_map: bool = False) -> tuple[list[np.ndarray], float, np.ndarray, Optional[np.ndarray]]:
+        """(her piksel sıcaklığı için olasılık haritası, belge logit'i, pencere logit'leri, ham logit haritası)."""
         if self.model is not None:
-            return sliding_window_predict(self.model, image, tile=self.config.get("crop_size", 512),
-                                          temperature=temperature, return_windows=True)
+            return sliding_window_maps(self.model, image, tile=self.config.get("crop_size", 512),
+                                       temperatures=tuple(temperatures), return_logit_map=logit_map)
+        prob_map, doc_logit = self._external(image, path)
+        logits = np.log(np.clip(prob_map, 1e-6, 1 - 1e-6) / np.clip(1 - prob_map, 1e-6, 1)) if logit_map else None
+        # Dış modelin haritası sıcaklıktan bağımsızdır: her sıcaklık için aynı harita.
+        return [prob_map] * len(temperatures), doc_logit, np.array([doc_logit], dtype=np.float32), logits
+
+    def _external(self, image: torch.Tensor, path: str) -> tuple[np.ndarray, float]:
         key = image_key(path)
         npy, png = self.maps_dir / f"{key}.npy", self.maps_dir / f"{key}.png"
         if npy.is_file():
@@ -169,8 +205,7 @@ class Predictor:
             flat = np.sort(prob_map.ravel())
             score = float(flat[-max(1, flat.size // 1000):].mean())  # en yüksek %0,1 piksel
         score = min(max(score, 1e-6), 1 - 1e-6)
-        doc_logit = float(np.log(score / (1 - score)))
-        return prob_map, doc_logit, np.array([doc_logit], dtype=np.float32)
+        return prob_map, float(np.log(score / (1 - score)))
 
 
 def ocr_risks(frame: pd.DataFrame) -> pd.DataFrame:
@@ -188,38 +223,67 @@ def ocr_risks(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, index=frame.index)
 
 
-def predict_frame(predictor: Predictor, frame: pd.DataFrame, temperature: float = 1.0,
-                  pixel_threshold: float = 0.5, pixel_samples: int = 0) -> pd.DataFrame:
+def predict_frame(predictor: Predictor, frame: pd.DataFrame, temperatures: float | tuple[float, ...] = 1.0,
+                  pixel_threshold: float = 0.5, pixel_samples: int = 0, nll_samples: int = 0,
+                  copymove: bool = False) -> pd.DataFrame:
     """Her görüntü için belge logit'ini, karar özetlerini ve piksel metriklerini hesaplar.
 
-    Piksel haritası uygulamadaki gibi ``temperature`` ile ölçeklenir. ``out.attrs``:
+    Piksel haritası uygulamadaki gibi ``temperatures[0]`` (piksel sıcaklığı) ile ölçeklenir; ek sıcaklıklar
+    yalnızca karşılaştırma için bölge oranlarını hesaplamakta kullanılır. ``out.attrs``:
 
-    * ``regions``: her görüntü için ``THRESHOLDS`` eşiklerindeki en büyük bölge oranları (N, len(THRESHOLDS)),
+    * ``regions``: ana sıcaklıkta ``THRESHOLDS`` eşiklerindeki en büyük bölge oranları (N, len(THRESHOLDS)),
+    * ``regions_by_t`` / ``max_pixel_by_t`` / ``pixel_temperatures``: tüm sıcaklıklar için (N, K, ...),
     * ``windows``: görüntü başına pencere ``cls_logit``'leri (havuzlama ablasyonu),
-    * ``pixel`` / ``pixel_obj``: piksel metrikleri ve görüntü başına TP/FP/FN taşıyan nesne.
+    * ``pixel`` / ``pixel_obj``: piksel metrikleri ve görüntü başına TP/FP/FN taşıyan nesne,
+    * ``pixel_nll`` (``nll_samples > 0``): maskeli sahte görüntülerden düzgün örneklenmiş (ham logit, etiket)
+      çiftleri — piksel sıcaklığı uydurmak için.
     """
+    temps = tuple(temperatures) if isinstance(temperatures, (tuple, list)) else (float(temperatures),)
     dataset = ForgeryDataset(frame, build_transforms(False), predictor.max_side)
     pixel = PixelMetrics(threshold=pixel_threshold, sample_pixels=pixel_samples)
-    logits, max_pixels, regions, windows = [], [], [], []
+    rng = np.random.default_rng(0)
+    logits, max_pixels, regions, windows, cm_risks = [], [], [], [], []
+    nll_logits, nll_labels = [], []
     for i in range(len(dataset)):
         sample = dataset[i]
-        prob_map, doc_logit, window_logits = predictor(sample["image"], frame.iloc[i]["image_path"], temperature)
-        pixel.update(prob_map, sample["mask"][0].numpy())
+        row = frame.iloc[i]
+        gt = sample["mask"][0].numpy()
+        want_logits = nll_samples > 0 and int(row["label"]) == 1 and gt.any()
+        maps, doc_logit, window_logits, logit_map = predictor(sample["image"], row["image_path"], temps, want_logits)
+        pixel.update(maps[0], gt)
         logits.append(doc_logit)
-        max_pixels.append(float(prob_map.max()))
-        regions.append([largest_region_fraction(prob_map, t) for t in THRESHOLDS])
+        max_pixels.append([float(m.max()) for m in maps])
+        regions.append([[largest_region_fraction(m, t) for t in THRESHOLDS] for m in maps])
         windows.append(window_logits)
+        if want_logits and logit_map is not None:
+            take = rng.choice(logit_map.size, size=min(nll_samples, logit_map.size), replace=False)
+            nll_logits.append(logit_map.ravel()[take])
+            nll_labels.append((gt.ravel()[take] > 0.5).astype(np.uint8))
+        if copymove:
+            from src.copymove import detect_copy_move
+
+            image, _ = limit_long_side(read_image_rgb(row["image_path"]), None, predictor.max_side)
+            cm_risks.append(detect_copy_move(image).risk)
         if (i + 1) % 100 == 0:
             logger.info("  %d / %d", i + 1, len(dataset))
     out = frame.reset_index(drop=True).copy()
+    by_t_max = np.asarray(max_pixels, dtype=np.float64).reshape(len(out), len(temps))
+    by_t_regions = np.asarray(regions, dtype=np.float64).reshape(len(out), len(temps), len(THRESHOLDS))
     out["doc_logit"] = logits
-    out["max_pixel"] = max_pixels
+    out["max_pixel"] = by_t_max[:, 0]
+    if copymove:
+        out["copymove_risk"] = cm_risks
     counts = np.asarray(pixel.counts, dtype=np.float64).reshape(len(out), 3)
     out["px_tp"], out["px_fp"], out["px_fn"] = counts[:, 0], counts[:, 1], counts[:, 2]
     out.attrs["pixel"] = pixel.compute()
     out.attrs["pixel_obj"] = pixel
-    out.attrs["regions"] = np.asarray(regions, dtype=np.float64).reshape(len(out), len(THRESHOLDS))
+    out.attrs["regions"] = by_t_regions[:, 0]
+    out.attrs["regions_by_t"] = by_t_regions
+    out.attrs["max_pixel_by_t"] = by_t_max
+    out.attrs["pixel_temperatures"] = np.asarray(temps, dtype=np.float64)
     out.attrs["windows"] = windows
+    if nll_logits:
+        out.attrs["pixel_nll"] = (np.concatenate(nll_logits), np.concatenate(nll_labels))
     return out
 
 
@@ -252,18 +316,24 @@ def confidence_intervals(pred: pd.DataFrame, decided: np.ndarray, temperature: f
 
 
 def save_arrays(path: Path, pred: pd.DataFrame) -> None:
-    """Ablasyon için görüntü başına eşik taramalı bölge oranları ve pencere logit'leri."""
+    """Ablasyon için görüntü başına eşik taramalı bölge oranları ve pencere logit'leri.
+
+    ``regions`` ana (kalibre) piksel sıcaklığındadır (eski çıktılarla aynı anahtar); ``regions_by_t`` /
+    ``max_pixel_by_t`` ``pixel_temperatures`` sırasıyla tüm karşılaştırma sıcaklıklarını taşır.
+    """
     windows = np.empty(len(pred), dtype=object)
     windows[:] = pred.attrs["windows"]
+    extra = {k: pred.attrs[k] for k in ("regions_by_t", "max_pixel_by_t", "pixel_temperatures") if k in pred.attrs}
     np.savez_compressed(path, thresholds=THRESHOLDS, regions=pred.attrs["regions"], windows=windows,
-                        image_path=pred["image_path"].astype(str).to_numpy())
+                        image_path=pred["image_path"].astype(str).to_numpy(), **extra)
 
 
-def save_error_maps(predictor: Predictor, pred: pd.DataFrame, decided: np.ndarray, temperature: float,
-                    threshold: float, out_dir: Path, n: int) -> None:
-    """En belirgin hatalar ve doğrular için TP/FP/FN hata haritaları (yeşil/kırmızı/mavi)."""
+def save_error_maps(predictor: Predictor, pred: pd.DataFrame, decided: np.ndarray, cal: Calibration,
+                    out_dir: Path, n: int) -> None:
+    """En belirgin hatalar ve doğrular için TP/FP/FN hata haritaları (yeşil/kırmızı/mavi; piksel eşiğinde)."""
     labels = pred["label"].to_numpy().astype(int)
-    probs = sigmoid(pred["doc_logit"].to_numpy(float) / temperature)
+    probs = sigmoid(pred["doc_logit"].to_numpy(float) / cal.doc_temperature)
+    threshold = cal.pixel_threshold
     groups = {
         "FP_yanlis_alarm": np.flatnonzero((labels == 0) & decided),
         "FN_kacirilan": np.flatnonzero((labels == 1) & ~decided),
@@ -278,7 +348,7 @@ def save_error_maps(predictor: Predictor, pred: pd.DataFrame, decided: np.ndarra
             gt = read_mask(row["mask_path"], image.shape[:2])
             dataset = ForgeryDataset(pred.iloc[[i]], build_transforms(False), predictor.max_side)
             sample = dataset[0]
-            prob_map, _, _ = predictor(sample["image"], row["image_path"], temperature)
+            prob_map = predictor(sample["image"], row["image_path"], (cal.pixel_temperature,))[0][0]
             if prob_map.shape != image.shape[:2]:  # max_side küçültmesi: görselleştirmede orijinal boyut
                 prob_map = cv2.resize(prob_map, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
             vis = error_map(image, prob_map, gt, threshold)
@@ -286,35 +356,81 @@ def save_error_maps(predictor: Predictor, pred: pd.DataFrame, decided: np.ndarra
             cv2.imwrite(str(out_dir / name_out), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
 
-def decisions_at(pred: pd.DataFrame, temperature: float, ti: int) -> np.ndarray:
-    """``THRESHOLDS[ti]`` eşiğinde her görüntü için ``predict.is_forged`` kararı."""
-    threshold = float(THRESHOLDS[ti])
-    doc_probs = sigmoid(pred["doc_logit"].to_numpy() / temperature)
-    return np.array([decide_forged(fuse_doc_score(float(p), m), m, r, threshold)
-                     for p, m, r in zip(doc_probs, pred["max_pixel"], pred.attrs["regions"][:, ti])])
+def threshold_index(threshold: float) -> int:
+    return int(np.argmin(np.abs(THRESHOLDS - threshold)))
 
 
-def select_threshold(pred: pd.DataFrame, temperature: float, target_fpr: float) -> dict[str, float]:
-    """Val'de FPR ≤ ``target_fpr`` koşulunda TPR'si en yüksek eşik (eşitlikte küçük eşik).
+def decisions_at(pred: pd.DataFrame, doc_temperature: float, doc_ti: int, pixel_ti: Optional[int] = None,
+                 min_region_fraction: float = MIN_REGION_FRACTION) -> np.ndarray:
+    """Belge eşiği ``THRESHOLDS[doc_ti]`` ve piksel eşiği ``THRESHOLDS[pixel_ti]`` (verilmezse aynı; eski tek
+    eşik) için her görüntüde ``predict.is_forged`` kararı. Bölge oranları ``pred.attrs["regions"]``'dan
+    (ana piksel sıcaklığı) okunur."""
+    pixel_ti = doc_ti if pixel_ti is None else pixel_ti
+    threshold = float(THRESHOLDS[doc_ti])
+    doc_probs = sigmoid(pred["doc_logit"].to_numpy() / doc_temperature)
+    return np.array([decide_forged(fuse_doc_score(float(p), m), m, r, threshold, min_region_fraction)
+                     for p, m, r in zip(doc_probs, pred["max_pixel"], pred.attrs["regions"][:, pixel_ti])])
 
-    Hiçbir eşik hedefi tutturamazsa FPR'si en düşük eşik seçilir ve uyarı verilir.
+
+def fused_doc_probs(pred: pd.DataFrame, doc_temperature: float) -> np.ndarray:
+    """``fuse_doc_score`` uygulanmış kalibre belge olasılıkları (vektörel)."""
+    return np.array([fuse_doc_score(float(p), float(m)) for p, m in
+                     zip(sigmoid(pred["doc_logit"].to_numpy(float) / doc_temperature), pred["max_pixel"])])
+
+
+def select_thresholds(pred: pd.DataFrame, doc_temperature: float, target_fpr: float, joint: bool = True
+                      ) -> dict[str, float]:
+    """Val'de (belge eşiği, piksel eşiği) seçimi: FPR ≤ ``target_fpr`` koşulunda TPR en büyük.
+
+    ``joint=False`` → eski tek eşik (belge eşiği = piksel eşiği; ızgaranın köşegeni). Hiçbir aday hedefi
+    tutturamazsa FPR'si en düşük aday seçilir ve uyarı verilir.
     """
     labels = pred["label"].to_numpy().astype(int)
-    rows = []
-    for ti, threshold in enumerate(THRESHOLDS):
-        decided = decisions_at(pred, temperature, ti)
-        rows.append({"threshold": float(threshold), "fpr": float(decided[labels == 0].mean()),
-                     "tpr": float(decided[labels == 1].mean())})
-    table = pd.DataFrame(rows)
-    feasible = table[table["fpr"] <= target_fpr]
-    if feasible.empty:
-        best = table.sort_values(["fpr", "tpr"], ascending=[True, False]).iloc[0]
-        logger.warning("Hiçbir eşik val'de FPR ≤ %.2f sağlamıyor; en düşük FPR'li eşik seçildi "
-                       "(eşik=%.2f, FPR=%.3f, TPR=%.3f). Model yeniden eğitilmeli.",
-                       target_fpr, best["threshold"], best["fpr"], best["tpr"])
+    probs, regions = fused_doc_probs(pred, doc_temperature), pred.attrs["regions"]
+    if joint:
+        best = select_operating_point(probs, pred["max_pixel"].to_numpy(float), regions, labels, THRESHOLDS,
+                                      target_fpr)
     else:
-        best = feasible.sort_values(["tpr", "threshold"], ascending=[False, True]).iloc[0]
-    return {"threshold": float(best["threshold"]), "fpr": float(best["fpr"]), "tpr": float(best["tpr"])}
+        # Köşegen: her eşik için 1x1 ızgara; en iyi aday aynı sıralama kuralıyla seçilir.
+        rows = [dict(select_operating_point(probs, pred["max_pixel"].to_numpy(float), regions[:, [ti]], labels,
+                                            THRESHOLDS[[ti]], target_fpr), ti=ti) for ti in range(len(THRESHOLDS))]
+        feasible = [r for r in rows if r["feasible"]]
+        pool = feasible or rows
+        key = (lambda r: (-r["tpr"], r["fpr"], -r["ti"])) if feasible else (lambda r: (r["fpr"], -r["tpr"], -r["ti"]))
+        pick = min(pool, key=key)
+        best = {"doc_index": pick["ti"], "pixel_index": pick["ti"], "fpr": pick["fpr"], "tpr": pick["tpr"],
+                "feasible": bool(feasible)}
+    doc_thr, pix_thr = float(THRESHOLDS[best["doc_index"]]), float(THRESHOLDS[best["pixel_index"]])
+    if not best["feasible"]:
+        logger.warning("Hiçbir eşik çifti val'de FPR ≤ %.2f sağlamıyor; en düşük FPR'li çift seçildi "
+                       "(belge eşiği=%.2f, piksel eşiği=%.2f, FPR=%.3f, TPR=%.3f). Model yeniden eğitilmeli.",
+                       target_fpr, doc_thr, pix_thr, best["fpr"], best["tpr"])
+    return {"doc_threshold": doc_thr, "pixel_threshold": pix_thr, "fpr": best["fpr"], "tpr": best["tpr"]}
+
+
+def has_pixel_masks(frame: pd.DataFrame) -> bool:
+    """Val'de piksel maskesi olan (boş olmayan ``mask_path``) sahte görüntü var mı?"""
+    if "mask_path" not in frame:
+        return False
+    forged = frame[frame["label"].astype(int) == 1]
+    return bool((forged["mask_path"].fillna("").astype(str).str.strip() != "").any())
+
+
+def resolve_pixel_temperature(option: str, doc_temperature: float, val_pred: pd.DataFrame, masks: bool) -> float:
+    """``--pixel-temperature`` seçeneğini sayıya çevirir (``fit``: val sahtelerinde piksel NLL)."""
+    option = str(option).strip().lower()
+    if option == "doc":
+        return doc_temperature
+    if option != "fit":
+        value = float(option)
+        if value <= 0:
+            raise ValueError(f"Geçersiz piksel sıcaklığı: {value}")
+        return value
+    nll = val_pred.attrs.get("pixel_nll")
+    if not masks or nll is None or not nll[1].any():
+        logger.warning("Val'de piksel maskesi olan sahte yok; piksel sıcaklığı 1'de sabit kaldı.")
+        return 1.0
+    return fit_temperature(nll[0], nll[1])
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +534,8 @@ def log_breakdown(key: str, table: pd.DataFrame) -> None:
 def breakdown_from_files(out_dir: Path, data_root: str) -> None:
     """``--breakdown-only``: mevcut ``predictions_*.csv`` dosyalarından kırılım üretir."""
     summary_path = out_dir / "summary.json"
-    temperature = json.loads(summary_path.read_text(encoding="utf-8")).get("temperature", 1.0) \
-        if summary_path.is_file() else 1.0
+    meta = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+    temperature = float(meta.get("doc_temperature", meta.get("temperature", 1.0)))
     files = sorted(out_dir.glob("predictions_*.csv"))
     if not files:
         raise FileNotFoundError(f"{out_dir} altında predictions_*.csv yok; önce evaluate.py'yi modelle çalıştırın.")
@@ -462,41 +578,71 @@ def main() -> None:
         logger.warning("Model AIForge-Doc ile eğitildi; AIForge-Doc SROIE fişlerinden türetildiği için "
                        "örtüşen SROIE dosyaları splits.csv'de zaten çıkarılmıştır.")
 
-    # --- Kalibrasyon: yalnızca val (sıcaklık + karar eşiği) ----------------------------
-    temperature = args.temperature if args.temperature is not None else 1.0
-    threshold = args.threshold
-    calibration: dict[str, float] = {}
-    if not args.no_calibration:
+    # --- Kalibrasyon: yalnızca val (belge/piksel sıcaklığı + eşik çifti) ----------------
+    pixel_t_default = args.temperature if args.temperature is not None else 1.0
+    cal = Calibration(doc_temperature=args.temperature if args.temperature is not None else 1.0,
+                      doc_threshold=args.threshold,
+                      pixel_temperature=pixel_t_default if str(args.pixel_temperature).lower() in ("fit", "doc")
+                      else float(args.pixel_temperature),
+                      pixel_threshold=args.pixel_threshold if args.pixel_threshold is not None else args.threshold)
+    calibration_source = "komut satırı (öğrenilmedi)"
+    if args.from_calibration:
+        if not args.checkpoint and not args.calibration_file:
+            raise SystemExit("--from-calibration için --checkpoint ya da --calibration-file gerekir.")
+        cal = load_calibration_info(args.calibration_file, args.checkpoint)
+        calibration_source = f"{cal.path.as_posix()} ({'eski tek-T şema' if cal.legacy else 'ayrı kalibrasyon'})"
+        logger.info("Mevcut kalibrasyon uygulanıyor: %s — %s", calibration_source, cal.summary())
+        if not cal.calibrated:
+            logger.warning("Bu kalibrasyon val'de öğrenilmemiş (elle girilmiş/varsayılan): sonuçlar 'kalibre "
+                           "edilmemiş' olarak işaretlenecek.")
+    elif not args.no_calibration:
         val = splits[splits["split"] == "val"]
         if args.max_images:
             # Sınıf başına üst sınır: eşik seçimi için iki sınıf da temsil edilmeli.
             val = pd.concat([g.sample(min(len(g), args.max_images), random_state=0) for _, g in val.groupby("label")])
         if val["label"].nunique() == 2:
+            masks = has_pixel_masks(val)
             logger.info("Sıcaklık ölçekleme val kümesinde öğreniliyor (%d görüntü)...", len(val))
-            val_pred = predict_frame(predictor, val)
+            val_pred = predict_frame(predictor, val, 1.0, nll_samples=args.pixel_samples or 2000)
             if args.temperature is None:
-                temperature = fit_temperature(val_pred["doc_logit"].to_numpy(), val_pred["label"].to_numpy())
-                logger.info("Öğrenilen sıcaklık T = %.3f", temperature)
+                cal.doc_temperature = fit_temperature(val_pred["doc_logit"].to_numpy(), val_pred["label"].to_numpy())
+                logger.info("Öğrenilen belge sıcaklığı T_doc = %.3f", cal.doc_temperature)
             else:
-                logger.info("Sabit sıcaklık T = %.3f (--temperature); yalnızca eşik val'de seçilecek", temperature)
-            if abs(temperature - 1.0) > 1e-6:
-                logger.info("Eşik seçimi için val, T=%.3f piksel haritalarıyla yeniden işleniyor...", temperature)
-                val_pred = predict_frame(predictor, val, temperature)
-            chosen = select_threshold(val_pred, temperature, args.target_fpr)
-            threshold = chosen["threshold"]
-            calibration = {"target_fpr": args.target_fpr, "val_fpr": chosen["fpr"], "val_tpr": chosen["tpr"],
-                           "val_images": len(val_pred)}
-            logger.info("Seçilen karar eşiği = %.2f (val: FPR=%.3f, TPR=%.3f, hedef FPR ≤ %.2f)",
-                        threshold, chosen["fpr"], chosen["tpr"], args.target_fpr)
+                logger.info("Sabit belge sıcaklığı T_doc = %.3f (--temperature)", cal.doc_temperature)
+            cal.pixel_temperature = resolve_pixel_temperature(args.pixel_temperature, cal.doc_temperature, val_pred,
+                                                              masks)
+            logger.info("Piksel sıcaklığı T_pix = %.3f (--pixel-temperature %s)", cal.pixel_temperature,
+                        args.pixel_temperature)
+            if abs(cal.pixel_temperature - 1.0) > 1e-6:
+                logger.info("Eşik seçimi için val, T_pix=%.3f piksel haritalarıyla yeniden işleniyor...",
+                            cal.pixel_temperature)
+                val_pred = predict_frame(predictor, val, cal.pixel_temperature)
+            if not masks:
+                logger.warning("Val'de piksel maskesi olan sahte yok: piksel tarafı T=1 ve tek eşik "
+                               "(belge eşiği = piksel eşiği; eski davranış) kullanılıyor.")
+            chosen = select_thresholds(val_pred, cal.doc_temperature, args.target_fpr, joint=masks)
+            cal.doc_threshold, cal.pixel_threshold = chosen["doc_threshold"], chosen["pixel_threshold"]
+            cal.target_fpr, cal.val_fpr, cal.val_tpr = args.target_fpr, chosen["fpr"], chosen["tpr"]
+            cal.val_images = len(val_pred)
+            cal.checkpoint = Path(args.checkpoint).as_posix() if args.checkpoint else None
+            logger.info("Seçilen eşikler: belge=%.2f, piksel=%.2f (val: FPR=%.3f, TPR=%.3f, hedef FPR ≤ %.2f)",
+                        cal.doc_threshold, cal.pixel_threshold, chosen["fpr"], chosen["tpr"], args.target_fpr)
+            if args.checkpoint:
+                calib_path = calibration_path_for(args.checkpoint)
+                calib_path.write_text(json.dumps(cal.to_dict(), indent=2), encoding="utf-8")
+                cal.path = calib_path
+                calibration_source = f"{calib_path.as_posix()} (val'de öğrenildi)"
+                logger.info("Kalibrasyon yazıldı: %s", calib_path)
         else:
-            logger.warning("Val kümesinde iki sınıf yok; sıcaklık ve eşik öğrenilemedi (T=1, eşik=0.5).")
-        calib_path = Path(args.checkpoint).parent / "calibration.json"
-        calib_path.write_text(json.dumps({"temperature": temperature, "optimal_threshold": threshold, **calibration},
-                                         indent=2), encoding="utf-8")
-        logger.info("Kalibrasyon yazıldı: %s", calib_path)
+            # Val yoksa mevcut kalibrasyon dosyası ezilmez (eski sürüm T=1/0.5 yazıyordu).
+            logger.warning("Val kümesinde iki sınıf yok; sıcaklık ve eşik öğrenilemedi, kalibrasyon dosyası "
+                           "YAZILMADI. Mevcut kalibrasyonu uygulamak için --from-calibration kullanın.")
 
     # --- Test ve OOD kümeleri ------------------------------------------------------
-    ti = int(np.argmin(np.abs(THRESHOLDS - threshold)))
+    doc_ti, pix_ti = threshold_index(cal.doc_threshold), threshold_index(cal.pixel_threshold)
+    # Ana harita kalibre piksel sıcaklığında; belge T'si ve 1 yalnızca "tek T (eski)" ablasyonu için.
+    temps = tuple(dict.fromkeys([cal.pixel_temperature, cal.doc_temperature, 1.0])) if predictor.model is not None \
+        else (1.0,)
     report: dict[str, dict] = {}
     for split_name in args.sets:
         subset = splits[splits["split"] == split_name]
@@ -506,37 +652,38 @@ def main() -> None:
                                    for _, g in frame.groupby("label")])
             key = f"{split_name}/{source}"
             logger.info("Değerlendiriliyor: %s (%d görüntü)", key, len(frame))
-            pred = predict_frame(predictor, frame, temperature, threshold, args.pixel_samples)
+            pred = predict_frame(predictor, frame, temps, cal.pixel_threshold, args.pixel_samples,
+                                 copymove=args.copymove)
             if args.ocr:
                 logger.info("OCR kural motoru çalışıyor (%d görüntü)...", len(pred))
                 attrs = pred.attrs
                 pred = pd.concat([pred, ocr_risks(pred)], axis=1)
                 pred.attrs = attrs
             labels = pred["label"].to_numpy().astype(int)
-            decided = decisions_at(pred, temperature, ti)
+            decided = decisions_at(pred, cal.doc_temperature, doc_ti, pix_ti, cal.min_region_fraction)
             pred["forged_decision"] = decided.astype(int)
             confusion = binary_decision_metrics(decided, labels)
             metrics = {**pred.attrs["pixel"],
-                       **image_level_metrics(pred["doc_logit"].to_numpy(), labels, temperature),
-                       # Uygulamanın verdiği karar (is_forged, seçilen eşik): kullanıcının gördüğü başarım.
+                       **image_level_metrics(pred["doc_logit"].to_numpy(), labels, cal.doc_temperature),
+                       # Uygulamanın verdiği karar (is_forged, seçilen eşikler): kullanıcının gördüğü başarım.
                        "decision_acc": confusion["accuracy"],
                        "decision_tpr": float(decided[labels == 1].mean()) if (labels == 1).any() else float("nan"),
                        "decision_fpr": float(decided[labels == 0].mean()) if (labels == 0).any() else float("nan"),
                        "decision_precision": confusion["precision"], "decision_f1": confusion["f1"],
                        **{f"decision_{k}": confusion[k] for k in ("tp", "fp", "fn", "tn")},
                        "n_images": len(pred), "n_forged": int(labels.sum())}
-            metrics.update(confidence_intervals(pred, decided, temperature, args.bootstrap))
+            metrics.update(confidence_intervals(pred, decided, cal.doc_temperature, args.bootstrap))
             if pred["label"].nunique() == 2:
                 metrics["decision_balanced_acc"] = (metrics["decision_tpr"] + 1 - metrics["decision_fpr"]) / 2
-                _, table = expected_calibration_error(sigmoid(pred["doc_logit"] / temperature), pred["label"])
+                _, table = expected_calibration_error(sigmoid(pred["doc_logit"] / cal.doc_temperature), pred["label"])
                 table.to_csv(out_dir / f"reliability_{split_name}_{source}.csv", index=False)
             save_arrays(out_dir / f"arrays_{split_name}_{source}.npz", pred)
             if args.error_maps > 0:
-                save_error_maps(predictor, pred, decided, temperature, threshold,
-                                out_dir / "error_maps" / f"{split_name}_{source}", args.error_maps)
+                save_error_maps(predictor, pred, decided, cal, out_dir / "error_maps" / f"{split_name}_{source}",
+                                args.error_maps)
             pred = enrich_predictions(pred, args.data_root)
             pred.to_csv(out_dir / f"predictions_{split_name}_{source}.csv", index=False)
-            table = breakdown(pred, temperature)
+            table = breakdown(pred, cal.doc_temperature)
             table.to_csv(out_dir / f"breakdown_{split_name}_{source}.csv", index=False)
             log_breakdown(key, table)
             report[key] = metrics
@@ -547,9 +694,11 @@ def main() -> None:
     source = {"checkpoint": Path(args.checkpoint).as_posix() if args.checkpoint else None,
               "external_maps": args.external_maps, "splits": Path(args.splits).as_posix(),
               "created": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
-    (out_dir / "summary.json").write_text(json.dumps({**source, "temperature": temperature, "threshold": threshold,
-                                                      **calibration, "results": report},
-                                                     indent=2, default=float), encoding="utf-8")
+    calib_fields = {k: v for k, v in cal.to_dict().items() if k not in ("checkpoint", "optimal_threshold")}
+    # "temperature" / "threshold": eski okuyucular (dashboard, ablation_decision) için belge tarafı.
+    (out_dir / "summary.json").write_text(json.dumps({
+        **source, **calib_fields, "threshold": cal.doc_threshold, "calibrated": cal.calibrated,
+        "calibration_source": calibration_source, "results": report}, indent=2, default=float), encoding="utf-8")
     print(summary.round(4).to_string())
 
 

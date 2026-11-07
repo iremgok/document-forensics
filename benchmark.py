@@ -2,20 +2,27 @@
 Kapsamlı değerlendirme — ``app.py``'deki "Model Başarımı" sekmesinin ayrıntılı analiz bölümünün veri kaynağı.
 
 Çalıştırma:
-    python benchmark.py                          # Stage E, varsayılan örneklem (~15 dk, CPU)
-    python benchmark.py --n-aiforge 200 --ocr    # daha büyük örneklem + OCR kural motoru
+    python benchmark.py                          # Stage E, test protokolü (alt küme başına ≤ 60 görüntü, ~15 dk CPU)
+    python benchmark.py --splits results/protocol/stageE_kaggle_test_real.csv --max-per-subset 0   # tamamı
+    python benchmark.py --splits results/protocol/test_v1.csv --ocr
     python benchmark.py --checkpoint checkpoints/finetuned_multilingual_stageB.pth   # karşılaştırma: Stage B
+    python benchmark.py --legacy-sets            # eski sabit örneklem (sentetik v1 + AIForge-Doc)
 
 Çıktı klasörü modelin adını taşır (``results/benchmark_<model>``) ve ``meta.json`` checkpoint yolunu kaydeder;
 dashboard sonuçları kenar çubuğunda seçili modelle bu kayıt üzerinden eşleştirir. (Eski ``results/stageB``
 klasörü, 22.10'da ``finetuned_multilingual.pth`` ile üretilmiştir; o tarihte bu dosya bir Stage C ara
 modeliydi — bkz. ``src/model_registry.py``.)
 
-Değerlendirme kümesi (modelin eğitimde görmediği görseller):
-  * ``synthetic_test``  — Stage B ``splits.csv`` içindeki sentetik **test** bölümü
-    (tahrifat türü, dil ve belge tipi ``metadata.csv``'den gelir).
-  * ``synthetic_unseen`` — ``data/4_synthetic_tr_en`` içinde Stage B bölümlerinde hiç
-    geçmeyen belge gruplarından örneklem (tahrifat türü dosya adından okunur).
+Değerlendirme kümesi — test protokolüne bağlı (``--splits``, varsayılan
+``results/protocol/stageE_kaggle_test.csv``): ``--split`` (varsayılan ``test``) satırları alınır, alt kümeler
+``source`` sütunundan gelir (ör. ``real_forged``, ``synthetic``). Tahrifat türü dosya adındaki ``__NN_<tür>``
+ekinden, dil ``lang`` sütunundan okunur. ``--max-per-subset N`` alt küme ve sınıf başına seed'li alt örneklem
+alır (CPU süresi için; 0 = tamamı). JPEG ve WhatsApp dayanıklılık eğrileri **bu kümeden** seçilen alt kümede
+hesaplanır. Böylece dashboard ile ``evaluate.py`` aynı protokolü kullanır.
+
+``--legacy-sets`` eski sabit kodlu örneklemi korur (modelin eğitimde görmediği görseller):
+  * ``synthetic_test``  — Stage B ``splits.csv`` içindeki sentetik **test** bölümü,
+  * ``synthetic_unseen`` — ``data/4_synthetic_tr_en`` içinde Stage B bölümlerinde hiç geçmeyen gruplar,
   * ``aiforgedoc_ood``  — AIForge-Doc TestingSet (dağılım dışı; sahte + orijinal).
 
 Çıktılar (``--out``, varsayılan ``results/benchmark_<model>``):
@@ -23,11 +30,12 @@ Değerlendirme kümesi (modelin eğitimde görmediği görseller):
   * ``pixel_counts.npz``   — görsel × eşik ızgarası için piksel TP/FP/FN/TN sayıları ve eşiği geçen
     en büyük bağlantılı bölgenin sayfa oranı (``max_region``; ``app.is_forged`` piksel koşulu için).
   * ``pixel_samples.npz``  — görsel başına düzgün rastgele piksel örneklemi (ROC/PR için).
-  * ``robustness.csv``     — JPEG kalite faktörüne göre yeniden sıkıştırılmış alt kümede sonuçlar.
-  * ``meta.json``          — checkpoint, sıcaklık, eşik ızgarası, örneklem boyutları.
+  * ``robustness.csv``     — JPEG kalite faktörüne göre (``kanal = jpeg``) ve WhatsApp benzetimiyle
+    (``kanal = whatsapp``: uzun kenar ≤ 1600 + JPEG q75) yeniden kaydedilmiş alt kümede sonuçlar.
+  * ``meta.json``          — checkpoint, ayrı belge/piksel kalibrasyonu, splits, eşik ızgarası, örneklem boyutları.
 
-Not: Piksel olasılıkları ``calibration.json`` sıcaklığıyla, belge skoru ise **ham logit**
-olarak kaydedilir; panel farklı sıcaklıkları sonradan karşılaştırabilir.
+Not: Piksel olasılıkları modelin **piksel** sıcaklığıyla (``calibration.json`` → ``pixel_temperature``; eski
+şemada tek T), belge skoru ise **ham logit** olarak kaydedilir; panel belge sıcaklığını sonradan uygular.
 """
 
 from __future__ import annotations
@@ -47,7 +55,7 @@ import pandas as pd
 import torch
 from PIL import Image
 
-from predict import largest_region_fraction, load_calibration, predict_raw
+from predict import largest_region_fraction, load_calibration_info, predict_raw
 from src.dataset import read_image_rgb, read_mask
 from src.models import load_model
 
@@ -56,6 +64,9 @@ logger = logging.getLogger("benchmark")
 SYN_ROOT = Path("data/4_synthetic_tr_en")
 AIFORGE_TEST = Path("data/finetune_aiforgedoc/TestingSet")
 STAGEB_SPLITS = Path("checkpoints/synthetic/splits.csv")
+DEFAULT_SPLITS = Path("results/protocol/stageE_kaggle_test.csv")
+TAMPER_RE = re.compile(r"__\d{2}_([A-Za-z_]+)\.\w+$")
+WHATSAPP_MAX_SIDE, WHATSAPP_QUALITY = 1600, 75
 THRESHOLDS = np.round(np.arange(0.05, 0.951, 0.05), 2)
 PIXEL_SAMPLES_PER_IMAGE = 4000
 SYN_NAME = re.compile(r"(syn\d+)__\d+_(.+)\.\w+$")
@@ -72,8 +83,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint", default="checkpoints/stageE/best.pth")
     p.add_argument("--mode", choices=("sliding", "resize"), default="sliding")
     p.add_argument("--out", default=None, help="Varsayılan: results/benchmark_<model> (ör. benchmark_stageE)")
-    p.add_argument("--n-synthetic-unseen", type=int, default=40, help="Görülmemiş sentetik görsel sayısı")
-    p.add_argument("--n-aiforge", type=int, default=60, help="AIForge-Doc görsel sayısı (yarı sahte, yarı orijinal)")
+    p.add_argument("--splits", default=str(DEFAULT_SPLITS),
+                   help="Test protokolü (image_path, mask_path, label, source, split); alt kümeler source sütunundan")
+    p.add_argument("--split", default="test", help="--splits içinden alınacak bölüm")
+    p.add_argument("--max-per-subset", type=int, default=60,
+                   help="Alt küme ve sınıf başına en fazla görüntü (seed'li örneklem; 0 = tamamı)")
+    p.add_argument("--legacy-sets", action="store_true",
+                   help="Eski sabit örneklem: sentetik v1 test/görülmemiş + AIForge-Doc (--splits yok sayılır)")
+    p.add_argument("--n-synthetic-unseen", type=int, default=40, help="(--legacy-sets) Görülmemiş sentetik görsel sayısı")
+    p.add_argument("--n-aiforge", type=int, default=60, help="(--legacy-sets) AIForge-Doc görsel sayısı")
     p.add_argument("--robust-n", type=int, default=24, help="JPEG dayanıklılık alt kümesi boyutu")
     p.add_argument("--qualities", default="100,90,80,70,60,50", help="JPEG kalite faktörleri")
     p.add_argument("--ocr", action="store_true", help="OCR + kural motorunu da çalıştır (yavaş)")
@@ -86,7 +104,40 @@ def parse_args() -> argparse.Namespace:
 # Değerlendirme kümesi
 # ---------------------------------------------------------------------------
 
+def build_protocol_set(splits_path: str | Path, split: str, max_per_subset: int, seed: int) -> pd.DataFrame:
+    """Test protokolünden değerlendirme kümesi: alt küme = ``source``; tür dosya adından, dil ``lang``'dan."""
+    splits = pd.read_csv(splits_path, keep_default_na=False)
+    frame = splits[splits["split"] == split].copy()
+    if frame.empty:
+        raise SystemExit(f"{splits_path} içinde '{split}' bölümü yok.")
+    if max_per_subset > 0:
+        frame = pd.concat([g.sample(min(len(g), max_per_subset), random_state=seed)
+                           for _, g in frame.groupby(["source", "label"])])
+    paths = frame["image_path"].astype(str).str.replace("\\", "/", regex=False)
+    tamper = [m.group(1) if (m := TAMPER_RE.search(p)) else ("orig" if int(l) == 0 else "bilinmiyor")
+              for p, l in zip(paths, frame["label"])]
+    return pd.DataFrame({
+        "subset": frame["source"].to_numpy(), "image_path": paths.to_numpy(),
+        "mask_path": frame["mask_path"].astype(str).str.replace("\\", "/", regex=False).to_numpy(),
+        "label": frame["label"].astype(int).to_numpy(), "tamper_type": tamper,
+        "lang": frame["lang"].replace("", None).to_numpy() if "lang" in frame else None,
+        "doc_type": frame["doc_type"].replace("", None).to_numpy() if "doc_type" in frame else None,
+    }).sort_values(["subset", "label", "image_path"]).reset_index(drop=True)
+
+
+def whatsapp(image: np.ndarray) -> np.ndarray:
+    """WhatsApp benzetimi: uzun kenar ≤ 1600 + JPEG q75 (``generate_synthetic.DIGITAL_CHANNELS`` ile uyumlu)."""
+    h, w = image.shape[:2]
+    scale = WHATSAPP_MAX_SIDE / max(h, w)
+    if scale < 1:
+        image = cv2.resize(image, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, WHATSAPP_QUALITY])
+    out = cv2.cvtColor(cv2.imdecode(buf, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+    return cv2.resize(out, (w, h), interpolation=cv2.INTER_LINEAR) if out.shape[:2] != (h, w) else out
+
+
 def build_eval_set(n_unseen: int, n_aiforge: int, seed: int) -> pd.DataFrame:
+    """``--legacy-sets``: eski sabit kodlu örneklem (sentetik v1 + AIForge-Doc)."""
     rng = np.random.default_rng(seed)
     rows = []
 
@@ -192,11 +243,15 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     model, config = load_model(args.checkpoint, args.device)
-    temperature, threshold, calib_path = load_calibration(checkpoint=args.checkpoint)
-    logger.info("Model: %s | T=%.3f eşik=%.2f (%s) | mod=%s", args.checkpoint, temperature, threshold,
-                calib_path, args.mode)
+    cal = load_calibration_info(checkpoint=args.checkpoint)
+    # Haritalar piksel sıcaklığıyla; dayanıklılık eşiği piksel eşiğidir.
+    temperature, threshold, calib_path = cal.pixel_temperature, cal.pixel_threshold, cal.path
+    logger.info("Model: %s | %s (%s) | mod=%s", args.checkpoint, cal.summary(), calib_path, args.mode)
 
-    frame = build_eval_set(args.n_synthetic_unseen, args.n_aiforge, args.seed)
+    if args.legacy_sets:
+        frame = build_eval_set(args.n_synthetic_unseen, args.n_aiforge, args.seed)
+    else:
+        frame = build_protocol_set(args.splits, args.split, args.max_per_subset, args.seed)
     logger.info("Değerlendirme kümesi: %s", frame.groupby(["subset", "label"]).size().to_dict())
     rng = np.random.default_rng(args.seed)
 
@@ -250,20 +305,30 @@ def main() -> None:
         image = read_image_rgb(row.image_path)
         h, w = image.shape[:2]
         gt = read_mask(row.mask_path or None, (h, w)) if row.label == 1 else np.zeros((h, w), np.uint8)
+        variants = []
         for q in qualities:
             ok, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, q])
-            degraded = cv2.cvtColor(cv2.imdecode(buf, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+            variants.append(("jpeg", q, cv2.cvtColor(cv2.imdecode(buf, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)))
+        variants.append(("whatsapp", WHATSAPP_QUALITY, whatsapp(image)))
+        ti = int(np.argmin(np.abs(THRESHOLDS - threshold)))
+        for kanal, q, degraded in variants:
             prob, doc_logit = predict_raw(model, degraded, config, temperature, args.device, args.mode)
-            ti = int(np.argmin(np.abs(THRESHOLDS - threshold)))
             tp, fp, fn, tn = threshold_counts(prob, gt)[ti]
-            robust.append(dict(image_path=row.image_path, subset=row.subset, label=row.label, quality=q,
+            robust.append(dict(image_path=row.image_path, subset=row.subset, label=row.label, kanal=kanal, quality=q,
                                doc_logit=doc_logit, max_pixel=float(prob.max()), tp=tp, fp=fp, fn=fn, tn=tn))
         logger.info("Dayanıklılık [%2d/%d] %s", j + 1, len(subset), Path(row.image_path).name)
     pd.DataFrame(robust).to_csv(out / "robustness.csv", index=False)
 
     (out / "meta.json").write_text(json.dumps({
-        "checkpoint": args.checkpoint, "mode": args.mode, "temperature": temperature, "threshold": threshold,
+        "checkpoint": args.checkpoint, "mode": args.mode,
+        # "temperature" / "threshold": eski okuyucular için piksel tarafı (haritaların üretildiği değerler).
+        "temperature": temperature, "threshold": threshold,
+        "doc_temperature": cal.doc_temperature, "doc_threshold": cal.doc_threshold,
+        "pixel_temperature": cal.pixel_temperature, "pixel_threshold": cal.pixel_threshold,
+        "calibrated": cal.calibrated, "splits": None if args.legacy_sets else Path(args.splits).as_posix(),
+        "split": None if args.legacy_sets else args.split, "max_per_subset": args.max_per_subset,
         "calibration_file": str(calib_path), "thresholds": THRESHOLDS.tolist(), "qualities": qualities,
+        "whatsapp": {"max_side": WHATSAPP_MAX_SIDE, "quality": WHATSAPP_QUALITY},
         "robustness_threshold": float(THRESHOLDS[int(np.argmin(np.abs(THRESHOLDS - threshold)))]),
         "n_images": len(per_image), "ocr": args.ocr, "seed": args.seed,
         "created": time.strftime("%Y-%m-%d %H:%M"),

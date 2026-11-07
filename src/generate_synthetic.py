@@ -50,7 +50,7 @@ Kullanım:
     python -m src.generate_synthetic --out data/4_synthetic_tr_en --num-docs 1000 --variants 3 --overwrite
 
 Varsayılan çıktı ``data/6_synthetic_tr_en_v4`` klasörüdür (düzenleme izli dijital mod);
-``src/dataset.py`` bu klasörü ``5_synthetic_tr_en_v3`` ve ``4_synthetic_tr_en``'den önce arar. Hedef klasörde ``metadata.csv`` varsa üretim ``--overwrite``
+``src/dataset.py`` bu klasörü ``4_synthetic_tr_en``'den önce arar (v3 arşivlendi). Hedef klasörde ``metadata.csv`` varsa üretim ``--overwrite``
 verilmeden başlamaz (önceki veri setinin yanlışlıkla ezilmesini önler).
 """
 
@@ -793,7 +793,7 @@ def generate_group(group_id: str, rng: random.Random, fonts: list[tuple[str, str
 
 
 def generate_dataset(out_dir: str | Path, num_docs: int, n_variants: int = 3, seed: int = 42,
-                     tr_ratio: float = 0.6, digital_ratio: float = 0.0) -> Path:
+                     tr_ratio: float = 0.9, digital_ratio: float = 0.0) -> Path:
     """Sentetik veri kümesini üretir ve ``metadata.csv`` yolunu döndürür."""
     out_dir = Path(out_dir)
     (out_dir / "images").mkdir(parents=True, exist_ok=True)
@@ -827,7 +827,8 @@ def main() -> None:
     parser.add_argument("--num-images", type=int, default=None,
                         help="Hedef toplam görüntü sayısı (ör. 5000-10000); verilirse --num-docs bundan hesaplanır")
     parser.add_argument("--variants", type=int, default=3, help="Grup başına sahte varyant sayısı")
-    parser.add_argument("--tr-ratio", type=float, default=0.6, help="Türkçe belge oranı")
+    parser.add_argument("--tr-ratio", type=float, default=0.9,
+                        help="Türkçe belge oranı (kapsam: Türkçe belgeler; İngilizce yalnızca çeşitlilik için)")
     parser.add_argument("--digital-ratio", type=float, default=0.5,
                         help="Dijital doğmuş (PDF/ekran görüntüsü) belge oranı: 0 = hepsi taranmış, "
                              "1 = hepsi dijital (varsayılan 0.5)")

@@ -27,6 +27,13 @@ Akış (her dosya / PDF sayfası için)
 4. Uyumlandırma: taranmış/fotoğraflı belgede yeni yazı çoğunlukla belgedeki bulanıklık ve
    gürültüye getirilir (aksi hâlde "keskin yazı = sahte" kolay ipucu olur); dijital belgede
    ``add_edit_trace`` ile gerçekçi yerel düzenleme izi eklenir (bkz. ``generate_synthetic.EDIT_TRACES``).
+
+   **Edinim türü önce kaynaktan belirlenir** (``decide_acquisition``): açık ``--acquisition`` argümanı >
+   kurum klasöründeki ``_acquisition.txt`` (``digital`` / ``photo`` / ``scan``) > dosya türü (PDF ya da
+   kayıpsız PNG → ``digital``). Piksel gürültüsüne bakan ``is_digital`` yalnızca kaynak belirsizken (JPEG vb.)
+   yedek olarak kullanılır. Eski sürüm kararı yalnızca gürültüden verdiği için 200 DPI'da PNG'ye çevrilmiş
+   50 A4 PDF'i (Trendyol/Ziraat) "photo" sanıp sahte bölgelerine fotoğraf bulanıklığı eklemişti; kararın
+   gerekçesi artık ``metadata.csv``'de ``acquisition_source`` sütunundadır (bkz. ``tools/audit_acquisition.py``).
 5. **Orijinal dahil** gruptaki tüm görüntüler aynı son kanaldan/kaliteyle yeniden kaydedilir;
    böylece "yeniden kaydedilmiş = sahte" kestirmesi oluşmaz.
 
@@ -37,9 +44,13 @@ Girdi klasörü düzeni (alt klasör adı = kurum, ``doc_type`` sütununa yazıl
         ziraat/   ...
         trendyol/ fatura_001.pdf ...
 
-Çıktı (``src/dataset.py`` → ``real_forged`` kaynağı)::
+Çıktı (``src/dataset.py`` → ``real_forged`` kaynağı; ``8_real_forged_v2`` varsa o kullanılır)::
 
-    data/8_real_forged/images/*.png|jpg   masks/*.png   metadata.csv
+    data/8_real_forged_v2/images/*.png|jpg   masks/*.png   pdf/<kurum>/*.pdf   metadata.csv
+
+PDF girdilerinin orijinal dosyası ``pdf/`` altına kopyalanır ve ``source_pdf`` sütununa yazılır
+(``tools/pdf_eval.py`` PDF yapı analizörünü gerçek veride bu dosyalarla değerlendirir). Mevcut
+``data/8_real_forged`` (v1) üzerine yazılmaz.
 
 ``group_id`` = ``real:<kurum>/<dosya>`` — ``real_originals`` kaynağıyla aynı biçimdedir; aynı belgenin
 orijinali ve sahteleri asla farklı bölümlere (train/val/test) düşmez. ``real_forged`` her belgenin
@@ -47,9 +58,10 @@ yeniden kaydedilmiş orijinalini de içerdiği için eğitimde ``real_originals`
 kullanılmamalıdır (ham orijinal + yeniden kaydedilmiş sahte → "yeniden kayıt = sahte" kestirmesi).
 
 Kullanım:
-    python -m src.forge_real                                  # data/7_real_originals → data/8_real_forged
+    python -m src.forge_real                                  # data/7_real_originals → data/8_real_forged_v2
     python -m src.forge_real --variants 4 --gpu               # sayfa başına 4 sahte, OCR GPU'da
-    python -m src.forge_real --limit 5 --out data/_forge_preview --overwrite   # hızlı önizleme
+    python -m src.forge_real --limit 5 --out <geçici klasör>  # hızlı önizleme
+    python -m src.forge_real --src data/yeni_fotograflar --acquisition photo   # edinim türünü açıkça ver
 """
 
 from __future__ import annotations
@@ -59,6 +71,7 @@ import csv
 import json
 import random
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,7 +89,13 @@ from src.ocr_checker import _AMOUNT_RE, get_reader
 
 PDF_DPI = 200  # app.py ile aynı rasterleştirme çözünürlüğü
 METADATA_FIELDS = ["image", "mask", "group_id", "label", "tamper_type", "lang", "doc_type", "acquisition",
-                   "channel", "edit_trace", "source_file", "page", "edits"]
+                   "acquisition_source", "channel", "edit_trace", "source_file", "source_pdf", "page", "edits"]
+#: Geçerli edinim türleri; ``digital`` dışındakiler fotoğraf/tarama uyumlandırması alır.
+ACQUISITIONS = ("digital", "photo", "scan")
+#: Kurum klasöründe edinim türünü bildiren dosya (ilk boş olmayan satır: digital / photo / scan).
+ACQUISITION_FILE = "_acquisition.txt"
+#: Kayıpsız ve kaynağı belli dosya türleri → dijital doğmuş belge.
+DIGITAL_SUFFIXES = {".pdf": "pdf", ".png": "png_kayipsiz"}
 
 #: İşlemler ve seçilme ağırlıkları.
 OP_WEIGHTS: dict[str, float] = {
@@ -149,6 +168,45 @@ def is_digital(image: np.ndarray) -> bool:
     if background.mean() < 0.2:
         return False
     return float(np.std(residual[background])) < 0.8
+
+
+def read_acquisition_file(path: Path, root: Path) -> Optional[str]:
+    """``path``'ten ``root``'a kadar klasörlerde ilk bulunan ``_acquisition.txt`` değeri (yoksa None)."""
+    root = root.resolve()
+    folder = path.resolve().parent
+    while True:
+        marker = folder / ACQUISITION_FILE
+        if marker.is_file():
+            lines = [ln.strip().lower() for ln in marker.read_text(encoding="utf-8").splitlines()]
+            value = next((ln for ln in lines if ln and not ln.startswith("#")), "")
+            if value not in ACQUISITIONS:
+                raise ValueError(f"{marker}: geçersiz edinim türü '{value}' (seçenekler: {', '.join(ACQUISITIONS)})")
+            return value
+        if folder == root or folder.parent == folder or root not in folder.parents:
+            return None
+        folder = folder.parent
+
+
+def decide_acquisition(path: Path, root: Path, override: Optional[str] = None,
+                       image: Optional[np.ndarray] = None) -> tuple[str, str]:
+    """Edinim türü ve gerekçesi: ``(digital|photo|scan, kaynak)``.
+
+    Öncelik: ``override`` (``--acquisition``) > ``_acquisition.txt`` > dosya türü (PDF, kayıpsız PNG →
+    ``digital``) > piksel gürültüsü (``is_digital``; yalnızca JPEG vb. belirsiz kaynaklarda, ``image`` gerekir).
+    """
+    if override:
+        if override not in ACQUISITIONS:
+            raise ValueError(f"Geçersiz edinim türü: {override} (seçenekler: {', '.join(ACQUISITIONS)})")
+        return override, "arguman"
+    declared = read_acquisition_file(path, root)
+    if declared:
+        return declared, ACQUISITION_FILE
+    suffix = path.suffix.lower()
+    if suffix in DIGITAL_SUFFIXES:
+        return "digital", DIGITAL_SUFFIXES[suffix]
+    if image is None:
+        raise ValueError(f"{path}: kaynak belirsiz ({suffix}); piksel tabanlı yedek karar için görüntü gerekli.")
+    return ("digital" if is_digital(image) else "photo"), "piksel_gurultusu"
 
 
 def classify(text: str) -> Optional[str]:
@@ -457,8 +515,11 @@ def forge_page(image: np.ndarray, words: list[Word], n_variants: int, rng: rando
 
 
 def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max_side: int = 1600,
-                  gpu: bool = False, limit: Optional[int] = None) -> Path:
-    """``src`` altındaki tüm belgelerden sahte varyant üretir ve ``metadata.csv`` yolunu döndürür."""
+                  gpu: bool = False, limit: Optional[int] = None, acquisition: Optional[str] = None) -> Path:
+    """``src`` altındaki tüm belgelerden sahte varyant üretir ve ``metadata.csv`` yolunu döndürür.
+
+    ``acquisition`` verilirse tüm dosyalar için edinim türü budur (bkz. ``decide_acquisition``).
+    """
     files = sorted(p for p in src.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS | {".pdf"})
     if limit:
         files = files[:limit]
@@ -484,9 +545,17 @@ def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max
             except Exception as exc:  # Bozuk/şifreli dosya: atla, devam et
                 skipped.append(f"{path} ({exc.__class__.__name__}: {exc})")
                 continue
+            source_pdf = ""
+            if path.suffix.lower() == ".pdf":
+                # Orijinal PDF de saklanır: yapı analizi (tools/pdf_eval.py) rasterleştirmede kaybolan izlere bakar.
+                pdf_target = out / "pdf" / rel_path
+                pdf_target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, pdf_target)
+                source_pdf = pdf_target.relative_to(out).as_posix()
             for pi, page in enumerate(pages):
                 page, _ = limit_long_side(page, None, max_side)
-                digital = is_digital(page)
+                acq, acq_source = decide_acquisition(path, src, acquisition, page)
+                digital = acq == "digital"
                 words = detect_words(page, reader, measure_font)
                 variants = [("orig", page, np.zeros(page.shape[:2], np.uint8), "", [])]
                 variants += forge_page(page, words, n_variants, rng, fonts, digital)
@@ -495,7 +564,7 @@ def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max
                     channel = sample_digital_channel(rng)
                     quality = channel["quality"]
                 else:
-                    channel, quality = {"name": "photo"}, rng.randint(80, 95)
+                    channel, quality = {"name": acq}, rng.randint(80, 95)
                 ext = ".jpg" if quality else ".png"
                 stem_base = re.sub(r"[^\w\-]+", "_", rel)
                 for vi, (op_name, image, mask, trace, edits) in enumerate(variants):
@@ -507,8 +576,8 @@ def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max
                     writer.writerow({
                         "image": f"images/{stem}{ext}", "mask": f"masks/{stem}.png", "group_id": f"real:{rel}",
                         "label": int(op_name != "orig"), "tamper_type": op_name, "lang": "tr", "doc_type": issuer,
-                        "acquisition": "digital" if digital else "photo", "channel": channel["name"],
-                        "edit_trace": trace, "source_file": rel_path.as_posix(), "page": pi,
+                        "acquisition": acq, "acquisition_source": acq_source, "channel": channel["name"],
+                        "edit_trace": trace, "source_file": rel_path.as_posix(), "source_pdf": source_pdf, "page": pi,
                         "edits": json.dumps(edits, ensure_ascii=False),
                     })
                     n_forged += int(op_name != "orig")
@@ -517,7 +586,7 @@ def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max
             elapsed = time.time() - start
             print(f"  {fi}/{len(files)} dosya ({elapsed / 60:.1f} dk, "
                   f"kalan ~{elapsed / fi * (len(files) - fi) / 60:.1f} dk)", flush=True)
-    print(f"{n_forged} sahte varyant üretildi → {meta_path}")
+    print(f"{n_forged} sahte varyant üretildi: {meta_path}")  # "→" Windows cp1254 konsolunda yazılamıyor
     for message in skipped:
         print(f"  UYARI: {message}")
     return meta_path
@@ -526,7 +595,10 @@ def forge_dataset(src: Path, out: Path, n_variants: int = 3, seed: int = 42, max
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gerçek belgelerden OCR rehberli sahte varyant üretici")
     parser.add_argument("--src", default="data/7_real_originals", help="Gerçek orijinal belgeler (alt klasör = kurum)")
-    parser.add_argument("--out", default="data/8_real_forged")
+    parser.add_argument("--out", default="data/8_real_forged_v2",
+                        help="Çıktı klasörü (v1 = data/8_real_forged korunur; üzerine yazılmaz)")
+    parser.add_argument("--acquisition", choices=ACQUISITIONS, default=None,
+                        help="Tüm dosyaların edinim türü (verilmezse _acquisition.txt > dosya türü > piksel gürültüsü)")
     parser.add_argument("--variants", type=int, default=3, help="Sayfa başına sahte varyant sayısı")
     parser.add_argument("--max-side", type=int, default=1600, help="Uzun kenar sınırı (train.py --max-side ile aynı)")
     parser.add_argument("--gpu", action="store_true", help="EasyOCR'ı GPU'da çalıştır")
@@ -534,9 +606,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--overwrite", action="store_true", help="Hedef klasördeki mevcut veri setinin üzerine yaz")
     args = parser.parse_args()
+    if Path(args.out).resolve() == Path("data/8_real_forged").resolve():
+        parser.error("data/8_real_forged (v1) korunur; yeni üretim için başka bir --out verin (ör. data/8_real_forged_v2).")
     if (Path(args.out) / "metadata.csv").exists() and not args.overwrite:
         parser.error(f"{args.out} zaten bir veri seti içeriyor; üzerine yazmak için --overwrite verin.")
-    forge_dataset(Path(args.src), Path(args.out), args.variants, args.seed, args.max_side, args.gpu, args.limit)
+    forge_dataset(Path(args.src), Path(args.out), args.variants, args.seed, args.max_side, args.gpu, args.limit,
+                  args.acquisition)
 
 
 if __name__ == "__main__":

@@ -47,15 +47,16 @@ SOURCE_DIRS: dict[str, tuple[str, ...]] = {
     "doctamper": ("1_base_doctamper",),
     "aiforgedoc": ("2_finetune_aiforgedoc", "finetune_aiforgedoc"),
     "sroie2019": ("3_sroie2019",),
-    # v4 (düzenleme izli dijital mod) varsa önce o, sonra v3 (Stage C), sonra önceki sürüm kullanılır.
-    "synthetic": ("6_synthetic_tr_en_v4", "5_synthetic_tr_en_v3", "4_synthetic_tr_en", "synthetic_tr_en",
-                  "synthetic"),
+    # v4 (düzenleme izli dijital mod) varsa önce o, sonra önceki sürüm (Stage B) kullanılır. v3 (Stage C)
+    # ``tools/archive_artifacts.py`` ile ``_arsiv/`` altına taşınır.
+    "synthetic": ("6_synthetic_tr_en_v4", "4_synthetic_tr_en", "synthetic_tr_en", "synthetic"),
     # Gerçek, sahte OLMAYAN belgeler (taranmış/fotoğraflanmış/PDF'ten dışa aktarılmış dekont, fatura, fiş).
     # Alt klasörler serbesttir; tüm görüntüler label=0 kabul edilir. Yanlış alarmı düşüren zor negatifler.
     "real_originals": ("7_real_originals",),
     # ``python -m src.forge_real`` çıktısı: gerçek belgelerin yeniden kaydedilmiş orijinali + sahte varyantları.
-    # Orijinalleri de içerdiği için ``real_originals`` ile birlikte eğitime verilmemelidir.
-    "real_forged": ("8_real_forged",),
+    # Orijinalleri de içerdiği için ``real_originals`` ile birlikte eğitime verilmemelidir. v2 (edinim türü
+    # kaynaktan belirlenmiş, PDF'ler saklanmış) üretilmişse önce o kullanılır; v1 korunur.
+    "real_forged": ("8_real_forged_v2", "8_real_forged"),
     # Gönüllülerin Photoshop/GIMP/telefon ile elle yaptığı sahtecilikler + orijinalleri
     # (``tools/make_human_masks.py`` çıktısı). **Yalnızca test**: eğitime ve eşik seçimine asla girmez.
     "human_forged": ("9_human_forged",),
@@ -79,9 +80,14 @@ DOCTAMPER_SET_DIRS: tuple[str, ...] = (
 )
 
 #: Klasörün kendisinin bir kaynak olarak kabul edilmesini sağlayan işaret dosyaları.
-#: Örn. ``--data-root data/synthetic_fast`` doğrudan ``metadata.csv`` içerir.
+#: Örn. ``--data-root <sentetik klasör>`` doğrudan ``metadata.csv`` içerir.
 SOURCE_MARKERS: dict[str, str] = {
     "synthetic": "metadata.csv",
+}
+#: Aday klasörün kabul edilmesi için içinde bulunması gereken dosya (kökün kendisi kaynak sayılmaz). Yarım
+#: kalmış (metadata.csv yazılmamış) bir ``8_real_forged_v2`` atlanır ve v1'e düşülür.
+REQUIRED_FILES: dict[str, str] = {
+    "real_forged": "metadata.csv",
 }
 
 SPLIT_PRIORITY = {"": 0, "train": 1, "val": 2, "test": 3, "ood": 4}
@@ -304,9 +310,10 @@ def resolve_source_dir(data_root: Path, source: str) -> Optional[Path]:
     marker = SOURCE_MARKERS.get(source)
     if marker and (data_root / marker).is_file():
         return data_root
+    required = marker or REQUIRED_FILES.get(source)
     for name in SOURCE_DIRS[source]:
         candidate = find_subdir(data_root, name)
-        if candidate is None or (marker and not (candidate / marker).is_file()):
+        if candidate is None or (required and not (candidate / required).is_file()):
             continue
         return candidate
     if source == "doctamper" and _doctamper_set_dirs(data_root):

@@ -5,7 +5,7 @@ Streamlit web arayüzü: Türkçe finansal belgelerde sahtecilik ve manipülasyo
     streamlit run app.py
 
 Çıkarım altyapısı ``predict.py`` ile ortaktır (aynı ön işlem, kayan pencere / 512x512
-modları ve ``checkpoints/calibration.json`` sıcaklık + eşik kalibrasyonu). Sayfa:
+modları ve modelin ``calibration.json`` dosyasındaki ayrı belge / piksel kalibrasyonu). Sayfa:
   1. **Görsel analiz** — orijinal belge | jet olasılık haritası | %60/%40 ısı haritası
      bindirmesi (eşik üstü bölgeler beyaz konturla).
   2. **Özet** — belge olasılığı, maksimum piksel olasılığı, eşik üstü alan ve karar kutusu.
@@ -13,9 +13,15 @@ modları ve ``checkpoints/calibration.json`` sıcaklık + eşik kalibrasyonu). S
      Matrah + KDV = Genel Toplam, KDV oranı).
   4. **PDF yapı analizi (PDF yüklendiğinde)** — düzenleme aracı izi, artımlı kayıt, dijital imza
      kapsamı, gizlenmiş/üst üste yazılmış metin, satır içi font tutarsızlığı (``src/pdf_checker.py``).
-  5. **Hibrit karar** — model + OCR + PDF kanıtlarının noisy-OR birleşimi.
+  5. **Hibrit karar** — model + OCR + PDF (+ isteğe bağlı kopyala-taşı) kanıtlarının noisy-OR birleşimi.
   6. **Açıklanabilirlik (opsiyonel)** — sınıflandırma kafası için Grad-CAM ve gerçek maske yüklenirse
      TP/FP/FN hata haritası (``src/explain.py``).
+
+**Geliştirici modu** (kenar çubuğu, varsayılan kapalı): kapalıyken yalnızca önerilen model (Stage E) kayan
+pencere moduyla ve val'de doğrulanmış kalibrasyonla çalışır; sıcaklık/eşik değerleri salt okunur özet olarak
+gösterilir. Açıkken karşılaştırma/deneysel modeller, sıcaklık/eşik kutuları ve 512x512 hızlı önizleme görünür;
+değerler kalibrasyondan farklıysa "doğrulanmış çalışma noktası dışında" uyarısı verilir. Kalibrasyonu val'de
+öğrenilmemiş modeller "kalibre edilmemiş" olarak işaretlenir (``src/model_registry.py``).
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ warnings.filterwarnings("ignore", message=r".*Tried to instantiate class '__path
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 
 import hashlib
-from pathlib import Path
+from dataclasses import replace
 from typing import Optional
 
 import cv2
@@ -43,10 +49,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from predict import (CLEAN_PIXEL_LIMIT, explain_cam, fuse_doc_score, is_forged, load_calibration, make_overlay,
-                     predict)
+from predict import (CLEAN_PIXEL_LIMIT, Calibration, decide_with, explain_cam, fuse_doc_score,
+                     load_calibration_info, make_overlay, predict)
+from src.copymove import CopyMoveReport, detect_copy_move, draw_pairs
+from src.dataset import limit_long_side
 from src.explain import cam_overlay, error_counts, error_map
-from src.model_registry import EXPERIMENTAL, RECOMMENDED, checkpoint_summary, list_models, reliability_warning
+from src.model_registry import (EXPERIMENTAL, RECOMMENDED, UNCALIBRATED_LABEL, checkpoint_summary, is_calibrated,
+                                list_models, reliability_warning)
 from src.ocr_checker import FAIL, PASS, ContentReport, check_document_text, run_ocr
 from src.pdf_checker import PdfReport, check_pdf
 from src.runtime import cuda_available, easyocr_available, ensure_weights
@@ -66,9 +75,10 @@ def fetch_weights() -> dict[str, str]:
 
 
 @st.cache_data(show_spinner=False)
-def find_models(include_experimental: bool) -> dict[str, tuple[str, str, str]]:
-    """Diskteki modeller: {yol: (etiket, durum, not)} — sıra ve etiketler ``src/model_registry.py``'den."""
-    return {m.path: (m.label, m.status, m.note) for m in list_models(include_experimental=include_experimental)}
+def find_models(include_experimental: bool, include_archived: bool = False) -> dict[str, tuple[str, str, str, bool]]:
+    """Diskteki modeller: {yol: (etiket, durum, not, kalibre mi)} — sıra ve etiketler ``src/model_registry.py``'den."""
+    return {m.path: (m.label, m.status, m.note, is_calibrated(m.path))
+            for m in list_models(include_experimental=include_experimental, include_archived=include_archived)}
 
 
 @st.cache_data(show_spinner=False)
@@ -138,15 +148,17 @@ def draw_findings(image: np.ndarray, report: ContentReport, findings: Optional[l
     return out
 
 
-def hybrid_score(dl_score: Optional[float], *reports: Optional[ContentReport | PdfReport]) -> Optional[float]:
+def hybrid_score(dl_score: Optional[float], *reports: Optional[ContentReport | PdfReport | CopyMoveReport]
+                 ) -> Optional[float]:
     """
     Hibrit güven skoru — "noisy-OR" birleşimi:
 
-        P(sahte) = 1 − (1 − p_DL) · (1 − r_OCR) · (1 − r_PDF)
+        P(sahte) = 1 − (1 − p_DL) · (1 − r_OCR) · (1 − r_PDF) · (1 − r_CM)
 
     * p_DL: derin öğrenme modelinin kalibre belge olasılığı.
     * r_OCR: kural motorunun risk skoru (yalnızca *başarısız* kurallardan oluşur).
     * r_PDF: PDF yapı analizinin risk skoru (yalnızca PDF yüklendiğinde).
+    * r_CM: kopyala-taşı modülünün risk skoru (isteğe bağlı, varsayılan kapalı).
 
     Gerekçe: İki kaynak farklı sahtecilik türlerini yakalar. Kural ihlali (ör. geçersiz
     IBAN) piksel izi zayıf olsa bile tek başına güçlü kanıttır; tersine, matematiği
@@ -166,42 +178,98 @@ def hybrid_score(dl_score: Optional[float], *reports: Optional[ContentReport | P
 # Arayüz
 # ---------------------------------------------------------------------------
 
+def calibration_inputs(file_cal: Calibration) -> Calibration:
+    """Geliştirici modunda belge/piksel sıcaklığı ve eşik kutuları; değerler kalibrasyondan başlar."""
+    c1, c2 = st.columns(2)
+    doc_t = c1.number_input("Belge T", 0.1, 20.0, float(file_cal.doc_temperature), 0.1, format="%.3f",
+                            help="Belge logit'i sigmoid'den önce T'ye bölünür: p = sigmoid(logit / T).")
+    pix_t = c2.number_input("Piksel T", 0.1, 20.0, float(file_cal.pixel_temperature), 0.1, format="%.3f",
+                            help="Piksel logit'lerinin sıcaklığı (belge T'sinden ayrı kalibre edilir).")
+    doc_thr = st.slider("Belge eşiği", 0.05, 0.95, float(file_cal.doc_threshold), 0.01,
+                        help="Hibrit koşul: belge skoru bu eşiği geçmeli (ve haritada hafif iz olmalı).")
+    pix_thr = st.slider("Piksel (bölge) eşiği", 0.05, 0.95, float(file_cal.pixel_threshold), 0.01,
+                        help="Bölge koşulu: bu olasılığı geçen bağlantılı bölge sayfanın en az "
+                             f"%{file_cal.min_region_fraction * 100:.2f}'i olmalı.")
+    return replace(file_cal, doc_temperature=float(doc_t), pixel_temperature=float(pix_t),
+                   doc_threshold=float(doc_thr), pixel_threshold=float(pix_thr))
+
+
+def off_operating_point(cal: Calibration, file_cal: Calibration) -> bool:
+    """Ayarlar dosyadaki (val'de doğrulanmış) çalışma noktasından farklı mı?"""
+    pairs = ((cal.doc_temperature, file_cal.doc_temperature), (cal.pixel_temperature, file_cal.pixel_temperature),
+             (cal.doc_threshold, file_cal.doc_threshold), (cal.pixel_threshold, file_cal.pixel_threshold))
+    return any(abs(a - b) > 1e-6 for a, b in pairs)
+
+
 def sidebar() -> dict:
     with st.sidebar:
         st.header("⚙️ Ayarlar")
         failed = {k: v for k, v in fetch_weights().items() if v.startswith("indirilemedi")}
         if failed:
             st.warning("Bazı ağırlıklar indirilemedi:\n\n" + "\n".join(f"- `{k}`: {v}" for k, v in failed.items()))
-        show_experimental = st.toggle("Deneysel / eski modelleri de göster", value=False,
-                                      help="Ara ve deneme ağırlıkları (Stage C/D, runs/fast_run). Validasyonda "
-                                           "neredeyse her belgeye 'sahte' demişlerdir; karar için kullanmayın.")
-        models = find_models(show_experimental)
-        ckpt = st.selectbox("Model", list(models), format_func=lambda p: models[p][0]) if models else None
+        dev_mode = st.toggle("Geliştirici modu", value=False,
+                             help="Karşılaştırma/deneysel modeller, sıcaklık ve eşik ayarları ve 512x512 hızlı "
+                                  "önizleme. Kapalıyken yalnızca önerilen model, val'de doğrulanmış çalışma "
+                                  "noktasıyla kullanılır.")
+        show_experimental = show_archived = False
+        if dev_mode:
+            show_experimental = st.toggle("Deneysel / eski modelleri de göster", value=False,
+                                          help="Ara ve deneme ağırlıkları (Stage C/D, runs/fast_run). Validasyonda "
+                                               "neredeyse her belgeye 'sahte' demişlerdir; karar için kullanmayın.")
+            show_archived = show_experimental and st.toggle("Arşivdeki modelleri de göster (_arsiv/)", value=False)
+        models = find_models(show_experimental, show_archived)
+        if not dev_mode:
+            models = {k: v for k, v in models.items() if v[1] == RECOMMENDED}
+
+        def label(path: str) -> str:
+            text = models[path][0]
+            return text if models[path][3] else f"{text} · {UNCALIBRATED_LABEL}"
+
+        ckpt = st.selectbox("Model", list(models), format_func=label, disabled=not dev_mode and len(models) <= 1) \
+            if models else None
         if not models:
-            st.warning("`checkpoints/` veya `runs/` altında eğitilmiş model yok. Yalnızca OCR analizi yapılabilir.")
+            st.warning("Önerilen model (Stage E) bulunamadı. Yalnızca OCR analizi yapılabilir."
+                       + ("" if dev_mode else " Diğer modeller için geliştirici modunu açın."))
         elif ckpt:
-            label, status, note = models[ckpt]
+            text, status, note, calibrated = models[ckpt]
             warning = model_warning(ckpt)
             if status == EXPERIMENTAL or (warning and status != RECOMMENDED):
                 st.error(f"⚠️ Bu model karar için güvenilir değil: {warning or note}")
             elif note:
                 st.caption(note)
-        mode = st.radio("Çıkarım modu", list(MODES), format_func=MODES.get,
-                        help="Kayan pencere SRM gürültü istatistiğini korur; 512x512 mod daha hızlıdır "
-                             "ama büyük belgelerde ayrıntı kaybeder.")
+            if not calibrated:
+                st.warning("Bu model **kalibre edilmemiş**: kalibrasyonu val kümesinde `evaluate.py` ile "
+                           "öğrenilmemiş (genel/elle girilmiş değerler). Kararlar doğrulanmış bir çalışma "
+                           "noktasına dayanmaz.")
+        if dev_mode:
+            mode = st.radio("Çıkarım modu", list(MODES), format_func=MODES.get,
+                            help="Kayan pencere SRM gürültü istatistiğini korur; 512x512 mod daha hızlıdır "
+                                 "ama büyük belgelerde ayrıntı kaybeder ve doğrulanmış çalışma noktasının dışındadır.")
+        else:
+            mode = "sliding"
 
         st.subheader("🎚️ Kalibrasyon")
         try:
-            file_t, file_thr, calib_path = load_calibration(checkpoint=ckpt)
-            st.caption(f"Kaynak: `{calib_path.as_posix()}` (T={file_t:.3f}, eşik={file_thr:.2f})")
+            file_cal = load_calibration_info(checkpoint=ckpt)
         except (OSError, ValueError) as exc:
             st.error(f"Kalibrasyon dosyası okunamadı: {exc}")
-            file_t, file_thr = 1.0, 0.5
-        temperature = st.number_input("Temperature (T)", min_value=0.1, max_value=20.0, value=file_t,
-                                      step=0.1, format="%.3f",
-                                      help="Logit'ler sigmoid'den önce T'ye bölünür: p = sigmoid(logit / T).")
-        threshold = st.slider("Optimal Threshold", 0.05, 0.95, float(file_thr), 0.01,
-                              help="Bu olasılığın üzerindeki pikseller ve belgeler sahte kabul edilir.")
+            file_cal = Calibration()
+        source = file_cal.path.as_posix() if file_cal.path else "—"
+        if dev_mode:
+            st.caption(f"Kaynak: `{source}`" + (" (eski tek-T şema)" if file_cal.legacy else ""))
+            cal = calibration_inputs(file_cal)
+            if off_operating_point(cal, file_cal) or mode != "sliding":
+                st.warning("⚠️ Doğrulanmış çalışma noktası dışında: ayarlar val kümesinde seçilen değerlerden "
+                           "farklı; yanlış alarm ve tespit oranları raporlanan değerleri tutmayabilir.")
+        else:
+            cal = file_cal
+            st.markdown(
+                f"| | Sıcaklık | Eşik |\n|---|---|---|\n"
+                f"| Belge | {file_cal.doc_temperature:.3f} | {file_cal.doc_threshold:.2f} |\n"
+                f"| Piksel | {file_cal.pixel_temperature:.3f} | {file_cal.pixel_threshold:.2f} |")
+            val = (f"val: FPR {file_cal.val_fpr:.3f}, TPR {file_cal.val_tpr:.3f} ({file_cal.val_images} görüntü)"
+                   if file_cal.calibrated and file_cal.val_fpr is not None else UNCALIBRATED_LABEL)
+            st.caption(f"Salt okunur · `{source}`" + (" · eski tek-T şema" if file_cal.legacy else "") + f" · {val}")
 
         st.subheader("📑 İçerik analizi")
         ocr_ok, gpu_ok = easyocr_available(), cuda_available()
@@ -210,18 +278,23 @@ def sidebar() -> dict:
                             if ocr_ok else "EasyOCR kurulu değil (`pip install easyocr`); OCR devre dışı.")
         ocr_gpu = st.toggle("OCR için GPU", value=gpu_ok, disabled=not gpu_ok or not use_ocr,
                             help=None if gpu_ok else "CUDA bulunamadı; OCR CPU'da çalışır.")
+        use_copymove = st.toggle("Kopyala-taşı kanıtı (deneysel)", value=False,
+                                 help="Belge içinde birebir aynı glif bloklarını arar (src/copymove.py). Yalnızca "
+                                      "gürültülü (taranmış/fotoğraf/JPEG) zeminde kanıt üretir; düz dijital zeminde "
+                                      "doğal tekrarla ayırt edilemediği için 'kanıt yok' der. Hibrit skora katılır.")
 
         st.subheader("🧠 Açıklanabilirlik")
         use_cam = st.toggle("Grad-CAM (belge skoru)", value=False, disabled=not models,
                             help="Sınıflandırma kafasının kararını en çok etkileyen bölgeler. Harita temizken "
                                  "belge skoru yüksekse yanlış alarmın kaynağını gösterir (CPU'da yavaş).")
-    return {"ckpt": ckpt, "mode": mode, "temperature": float(temperature), "threshold": float(threshold),
-            "use_ocr": use_ocr, "ocr_gpu": ocr_gpu, "use_cam": use_cam}
+    return {"ckpt": ckpt, "mode": mode, "cal": cal, "dev_mode": dev_mode, "use_ocr": use_ocr, "ocr_gpu": ocr_gpu,
+            "use_cam": use_cam, "use_copymove": use_copymove}
 
 
 def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = None) -> dict:
     result: dict = {"prob_map": None, "doc_prob": None, "raw_doc_prob": None, "report": None, "lines": [],
-                    "pdf": None, "cam": None, "errors": []}
+                    "pdf": None, "cam": None, "copymove": None, "errors": []}
+    cal: Calibration = settings["cal"]
     if pdf_data is not None:
         try:
             result["pdf"] = check_pdf(pdf_data, dpi=PDF_DPI)
@@ -231,8 +304,9 @@ def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = 
         try:
             model, config, device = load_detector(settings["ckpt"])
             with st.spinner("Derin öğrenme analizi..."):
-                result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, settings["temperature"],
-                                                                     device, settings["mode"])
+                result["prob_map"], result["raw_doc_prob"] = predict(model, image, config, cal.doc_temperature,
+                                                                     device, settings["mode"],
+                                                                     pixel_temperature=cal.pixel_temperature)
             result["doc_prob"] = fuse_doc_score(result["raw_doc_prob"], float(result["prob_map"].max()))
             if settings.get("use_cam"):
                 with st.spinner("Grad-CAM hesaplanıyor..."):
@@ -240,6 +314,13 @@ def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = 
         except Exception as exc:  # Bozuk/eksik ağırlık, bellek yetersizliği: OCR yine de çalışabilsin
             result["prob_map"] = None
             result["errors"].append(f"Derin öğrenme analizi başarısız: {exc.__class__.__name__}: {exc}")
+    if settings.get("use_copymove"):
+        try:
+            with st.spinner("Kopyala-taşı eşleştirmesi..."):
+                small, _ = limit_long_side(image, None, 1600)  # modelle aynı ölçek
+                result["copymove"] = (detect_copy_move(small), small)
+        except Exception as exc:  # Beklenmedik görüntü yapısı: diğer analizler yine de gösterilsin
+            result["errors"].append(f"Kopyala-taşı analizi başarısız: {exc.__class__.__name__}: {exc}")
     if settings["use_ocr"]:
         try:
             with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
@@ -250,8 +331,9 @@ def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = 
     return result
 
 
-def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
+def show_visual(image: np.ndarray, result: dict, cal: Calibration) -> None:
     prob_map, doc_prob = result["prob_map"], result["doc_prob"]
+    threshold = cal.pixel_threshold  # kontur ve alan piksel eşiğiyle
     if prob_map is None:
         st.image(image, caption="Yüklenen belge", use_container_width=True)
         return
@@ -275,11 +357,11 @@ def show_visual(image: np.ndarray, result: dict, threshold: float) -> None:
     m2.metric("Maksimum Piksel Olasılığı", f"{max_pixel:.3f}")
     m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
 
-    if is_forged(doc_prob, prob_map, threshold):
+    if decide_with(cal, doc_prob, prob_map):
         st.error("⚠️ Belgede manipülasyon/sahtecilik tespiti yapıldı!")
     else:
         st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")
-        if doc_prob >= threshold and max_pixel < CLEAN_PIXEL_LIMIT:
+        if doc_prob >= cal.doc_threshold and max_pixel < CLEAN_PIXEL_LIMIT:
             st.info("ℹ️ Belge skoru sınırda/yüksek olsa da piksel seviyesinde sahte bölge izine rastlanmadı.")
 
 
@@ -355,15 +437,37 @@ def show_pdf(image: np.ndarray, result: dict, page: int) -> None:
                      caption=f"Sayfa {page + 1}: PDF bulguları (turuncu = ihlal)", use_container_width=True)
 
 
+def show_copymove(result: dict) -> None:
+    """Kopyala-taşı modülünün şüpheli blok çiftleri (isteğe bağlı)."""
+    stored = result.get("copymove")
+    if stored is None:
+        return
+    report, small = stored
+    st.subheader("🧬 Kopyala-taşı kanıtı (deneysel)")
+    c1, c2 = st.columns([2, 3])
+    c1.metric("Kopyala-taşı riski", f"%{report.risk * 100:.1f}",
+              help="Belge içinde gürültüsüyle birlikte birebir aynı olan en şüpheli glif çiftinin skoru.")
+    c1.caption(f"{report.info.get('glif', 0)} glif bloğu, {report.info.get('karsilastirma', 0)} ayrıntılı karşılaştırma. "
+               "Düz (gürültüsüz) dijital zeminde doğal tekrar ile kopya ayırt edilemez; bu durumda risk 0'dır.")
+    if report.pairs:
+        c1.dataframe(pd.DataFrame([{"kutu_a": p.box_a, "kutu_b": p.box_b, "skor": round(p.score, 2),
+                                    "gürültü_korelasyonu": round(p.noise_corr, 2), "zncc": round(p.zncc, 3)}
+                                   for p in report.pairs[:10]]), hide_index=True, use_container_width=True)
+        c2.image(draw_pairs(small, report), caption="Şüpheli blok çiftleri (aynı renk = eşleşen çift)",
+                 use_container_width=True)
+
+
 def show_verdict(result: dict) -> None:
-    """Model, OCR ve PDF kanıtlarının birleşik skoru (en az iki kaynak varsa)."""
-    sources = [result["doc_prob"] is not None, result["report"] is not None, result.get("pdf") is not None]
+    """Model, OCR, PDF (ve isteğe bağlı kopyala-taşı) kanıtlarının birleşik skoru (en az iki kaynak varsa)."""
+    copymove = result["copymove"][0] if result.get("copymove") else None
+    sources = [result["doc_prob"] is not None, result["report"] is not None, result.get("pdf") is not None,
+               copymove is not None]
     if sum(sources) < 2:
         return
-    final = hybrid_score(result["doc_prob"], result["report"], result.get("pdf"))
+    final = hybrid_score(result["doc_prob"], result["report"], result.get("pdf"), copymove)
     st.subheader("⚖️ Hibrit Karar")
     st.metric("Hibrit Sahtecilik Olasılığı", f"%{final * 100:.1f}" if final is not None else "—",
-              help="1 − (1 − p_model) · (1 − r_OCR) · (1 − r_PDF); mevcut olmayan kaynak 0 sayılır")
+              help="1 − (1 − p_model) · (1 − r_OCR) · (1 − r_PDF) · (1 − r_kopyala-taşı); mevcut olmayan kaynak 0 sayılır")
 
 
 def analysis_tab(settings: dict) -> None:
@@ -389,8 +493,9 @@ def analysis_tab(settings: dict) -> None:
 
     # Eşik çıkarım sonucunu değiştirmez (yalnızca görselleştirme/karar); diğer ayarlar değişirse
     # önceki sonuç geçersiz sayılır ve yeniden "Analiz Et" gerekir.
-    key = (hashlib.sha1(data).hexdigest(), page, settings["ckpt"], settings["mode"], settings["temperature"],
-           settings["use_ocr"], settings["use_cam"])
+    cal: Calibration = settings["cal"]
+    key = (hashlib.sha1(data).hexdigest(), page, settings["ckpt"], settings["mode"], cal.doc_temperature,
+           cal.pixel_temperature, settings["use_ocr"], settings["use_cam"], settings["use_copymove"])
     if st.button("🔎 Analiz Et", type="primary"):
         st.session_state["analysis"] = (key, run_analysis(image, settings, data if is_pdf else None))
 
@@ -404,10 +509,11 @@ def analysis_tab(settings: dict) -> None:
     result = stored[1]
     for message in result.get("errors", []):
         st.warning(message)
-    show_visual(image, result, settings["threshold"])
-    show_explain(image, result, settings["threshold"])
+    show_visual(image, result, cal)
+    show_explain(image, result, cal.pixel_threshold)
     show_content(image, result)
     show_pdf(image, result, page)
+    show_copymove(result)
     show_verdict(result)
 
 
@@ -425,7 +531,7 @@ def main() -> None:
     with tab_metrics:
         from src.dashboard import render_dashboard
 
-        render_dashboard(settings["threshold"], settings["temperature"], settings["ckpt"])
+        render_dashboard(settings["cal"], settings["ckpt"], settings["dev_mode"])
 
 
 if __name__ == "__main__":

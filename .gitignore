@@ -1,10 +1,21 @@
 data/
 checkpoints/
 runs/
-results/
+_arsiv/
 .cache/
 *.zip
 *.pth
 __pycache__/
 *.pyc
 .venv/
+
+# Sonuçlar varsayılan olarak git dışında; Hugging Face dashboard'u için Stage E sonuçları,
+# test protokolü ve Stage E benchmark'ı istisnadır (görseller hariç).
+results/*
+!results/stageE*/
+!results/protocol/
+!results/benchmark_stageE/
+results/stageE*/**/*.png
+results/stageE*/**/*.jpg
+results/stageE*/**/*.jpeg
+results/stageE*/error_maps/

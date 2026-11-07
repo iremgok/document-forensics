@@ -6,16 +6,27 @@ colorTo: red
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Türkçe finansal belgelerde sahtecilik tespiti ve konumlandırma
+short_description: Türkçe dijital dekont ve e-Arşiv faturalarında sahtecilik tespiti
 ---
 
-# Türkçe Finansal Belgelerde Geleneksel ve Üretken YZ Kaynaklı Sahteciliğin Tespiti ve Konumlandırılması
+# Türkçe Dijital Banka Dekontları ve e-Arşiv Faturalarında Sahteciliğin Tespiti ve Konumlandırılması
+
+**Kapsam:** Türkçe dijital banka dekontları ve e-Arşiv faturaları (PDF, PNG, ekran görüntüsü).
+
+| Durum | Belge / edinim türü |
+|---|---|
+| ✅ Desteklenen | Bankanın / GİB'in ürettiği PDF ve onun PNG dışa aktarımı, ekran görüntüsü, WhatsApp üzerinden iletilmiş kopyası |
+| ⚠️ Deneysel / kapsam dışı | Telefonla çekilmiş fotoğraf, tarayıcıdan geçmiş kâğıt belge, termal fiş, İngilizce belgeler |
+
+Kapsam dışı belgelerde model çalışır ancak sonuçlar doğrulanmamıştır (bkz. [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md):
+test edilmemiş koşullar ve bilinen kör noktalar).
 
 > **🌐 Canlı demo:** _yakında_ — `https://huggingface.co/spaces/<kullanici>/document-forensics` <!-- Space yayınlanınca bu satırı güncelleyin -->
 >
-> Teknik rapor: [`docs/TECHNICAL_DOCUMENTATION.md`](docs/TECHNICAL_DOCUMENTATION.md)
+> Teknik rapor: [`docs/TECHNICAL_DOCUMENTATION.md`](docs/TECHNICAL_DOCUMENTATION.md) · Model kartı:
+> [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md)
 
-Banka dekontu, fatura ve fişlerde sahteciliği **piksel düzeyinde konumlandıran** (ısı haritası / maske)
+Dijital banka dekontu ve e-Arşiv faturalarında sahteciliği **piksel düzeyinde konumlandıran** (ısı haritası / maske)
 ve **belge düzeyinde sahtecilik olasılığı** üreten hibrit bir sistem:
 
 | Bileşen | Ne yakalar? |
@@ -36,10 +47,10 @@ document_forensics/
 │   ├── 2_finetune_aiforgedoc/   # AIForge-Doc (mevcut "finetune_aiforgedoc" klasörü de otomatik tanınır)
 │   ├── 3_sroie2019/             # SROIE2019 orijinal fişler (yalnızca OOD yanlış-alarm testi)
 │   ├── 4_synthetic_tr_en/       # Önceki sentetik sürüm (Stage B)
-│   ├── 5_synthetic_tr_en_v3/    # Sentetik v3 (~8000 görüntü, Stage C)
 │   ├── 6_synthetic_tr_en_v4/    # Sentetik v4: yarı taranmış / yarı dijital, düzenleme izli (12 000, Stage E)
 │   ├── 7_real_originals/        # Gerçek orijinal belgeler (<kurum>/...)
-│   ├── 8_real_forged/           # src/forge_real.py: gerçek belgelerin sahte varyantları (Stage E)
+│   ├── 8_real_forged/           # src/forge_real.py v1: gerçek belgelerin sahte varyantları (Stage E; korunur)
+│   ├── 8_real_forged_v2/        # src/forge_real.py v2: edinim türü kaynaktan, orijinal PDF'ler pdf/ altında
 │   ├── 9_human_forged/          # tools/make_human_masks.py: gönüllü sahtecilikleri (yalnızca test)
 │   ├── 10_diffusion_forged/     # tools/diffusion_inpaint.py: difüzyon inpainting sahtecilikleri
 │   └── splits/                  # Önbellek: AIForge-Doc kaynak-grup eşlemesi
@@ -70,8 +81,8 @@ pip install -r requirements.txt
 ## Kullanım
 
 ```bash
-# 1) Sentetik Türkçe/İngilizce veri (varsayılan 2000 belge × (1 orijinal + 3 sahte) ≈ 8000 görüntü)
-python -m src.generate_synthetic                       # → data/5_synthetic_tr_en_v3
+# 1) Sentetik veri (%90 Türkçe; varsayılan 2000 belge × (1 orijinal + 3 sahte) ≈ 8000 görüntü)
+python -m src.generate_synthetic --out data/<yeni_klasor>
 python -m src.generate_synthetic --num-images 10000    # hedef görüntü sayısıyla
 
 # 2) Eğitim — yalnızca sentetik veri
@@ -104,7 +115,11 @@ python train.py --stage stageA --resume /kaggle/working/last.pth
 # Stage B — stageA_best.pth'den Türkçe sentetik + SROIE2019 ile ince ayar (lr=1e-5)
 python train.py --stage stageB
 # Stage C — Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi
-python train.py --stage stageC --init /kaggle/input/<ağırlık-veri-seti>/finetuned_multilingual.pth                 --data-root /kaggle/input/<sentetik-v3-veri-seti>
+python train.py --stage stageC --init /kaggle/input/<ağırlık-veri-seti>/finetuned_multilingual_stageB.pth                 --data-root /kaggle/input/<sentetik-veri-seti>
+# Stage E — Stage A'dan sentetik v4 + gerçek belgeler; model seçimi karar kuralıyla TPR@FPR=%2
+python train.py --stage stageE
+# Stage F — Stage E'den zayıf türler (copy_move, digit_change, delete) ağırlıklı ince ayar
+python train.py --stage stageF
 ```
 
 Stage B'de SROIE2019 eğitime girdiği için OOD yanlış-alarm testi olarak kullanılamaz.
@@ -132,9 +147,9 @@ python -c "from src.dataset import export_doctamper_lmdb as e; e('DocTamperV1-Tr
 
 **Adım A — Türkçe transfer öğrenme (Stage C).**
 * `src/generate_synthetic.py` varsayılan olarak 2000 belge × 4 ≈ **8000 görüntü** üretir
-  (`--num-images 5000…10000`), çıktı `data/5_synthetic_tr_en_v3`'e yazılır ve mevcut veri seti
-  `--overwrite` verilmeden ezilmez. `src/dataset.py` bu klasörü `4_synthetic_tr_en`'den önce arar.
-* `train.py --stage stageC`: başlangıç `checkpoints/finetuned_multilingual.pth`, kaynak yalnızca `synthetic`
+  (`--num-images 5000…10000`); mevcut veri seti `--overwrite` verilmeden ezilmez. (Stage C'nin v3 verisi
+  `tools/archive_artifacts.py` ile `_arsiv/` altına taşınır.)
+* `train.py --stage stageC`: başlangıç `checkpoints/finetuned_multilingual_stageB.pth`, kaynak yalnızca `synthetic`
   (DocTamper/SROIE eğitime girmez), AdamW (lr 1e-5, weight decay 1e-4), 12 epoch, çıktı `checkpoints/stageC/`.
 * **TR validasyon kümesi (`val_tr`).** `--val-lang tr` ile model seçimi, erken durdurma ve LR planlaması yalnızca
   Türkçe sentetik val belgeleri üzerinden yapılır; kullanılan liste `<run_dir>/val_tr.csv` olarak kaydedilir.
@@ -183,13 +198,15 @@ docker run -p 7860:7860 -e FORENSICS_WEIGHTS_REPO=<kullanici>/<model-deposu> doc
 
 **Streamlit Community Cloud:** `packages.txt` OpenCV'nin sistem kütüphanelerini kurar. Ancak ücretsiz katmanın
 ~1 GB belleği EfficientNet-B4 + EasyOCR için genellikle yetersizdir ve `requirements.txt`'teki `torch` Linux'ta
-CUDA tekerleğini indirir; bu nedenle HF Spaces (16 GB CPU) önerilir. `results/` `.gitignore` içinde olduğundan
-değerlendirme panelinin canlıda görünmesi için Stage E'nin `results/` çıktıları (`summary.json`, `breakdown_*.csv`,
-`results/benchmark_stageE/`; birkaç MB) depoya ayrıca eklenmelidir.
+CUDA tekerleğini indirir; bu nedenle HF Spaces (16 GB CPU) önerilir. `.gitignore`, değerlendirme panelinin
+canlıda çalışması için `results/stageE*/` (görseller hariç), `results/protocol/` ve `results/benchmark_stageE/`
+klasörlerini depoya dahil eder; diğer `results/` çıktıları git dışında kalır.
 
-**Model listesi:** uygulama yalnızca `src/model_registry.py`'deki önerilen (Stage E) ve karşılaştırma (Stage B, A)
-modellerini gösterir. Deneysel / ara ağırlıklar (Stage C/D, `runs/fast_run`) kenar çubuğundaki
-"Deneysel / eski modelleri de göster" anahtarıyla listelenir ve seçildiklerinde güvenilmezlik uyarısı çıkar.
+**Model listesi ve geliştirici modu:** varsayılan olarak yalnızca önerilen model (Stage E), kayan pencere
+moduyla ve val'de doğrulanmış kalibrasyonla (salt okunur özet) kullanılır. Kenar çubuğundaki **Geliştirici modu**
+açılınca karşılaştırma (Stage B, A) ve deneysel/arşiv modelleri, belge/piksel sıcaklık ve eşik ayarları ve 512x512
+önizleme görünür; ayarlar kalibrasyondan farklıysa "doğrulanmış çalışma noktası dışında" uyarısı çıkar.
+Kalibrasyonu val'de öğrenilmemiş modeller (ör. Stage A/B) **"kalibre edilmemiş"** olarak işaretlenir.
 
 ---
 

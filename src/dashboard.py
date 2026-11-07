@@ -13,9 +13,14 @@ Tüm grafikler gerçek değerlendirme çıktılarından çizilir; uydurma/örnek
 mevcut klasörlerden seçtirir ve her bölümün başında hangi modele ait olduğunu yazar. Sonuçlar deneysel /
 güvenilmez bir modele aitse (``src/model_registry.py``) kırmızı uyarı gösterilir. Böylece farklı modellerin
 sonuçları aynı sekmede fark edilmeden karışmaz.
-* ``runs/**/history.csv``, ``checkpoints/**/history.csv`` — ``train.py``'nin epoch günlükleri.
-* Checkpoint içindeki son epoch metrikleri ve ``checkpoints/synthetic/splits.csv``,
-  ``data/4_synthetic_tr_en/metadata.csv`` — veri seti dağılımı.
+* ``runs/**/history.csv``, ``checkpoints/**/history.csv`` — ``train.py``'nin epoch günlükleri; CSV yoksa
+  checkpoint içindeki ``history`` anahtarı (``src.models.load_history``).
+* Checkpoint içindeki son epoch metrikleri ve benchmark'ın kullandığı ``splits`` dosyası (``meta.json`` →
+  ``splits``; alt kümeler ``source`` sütunundan) — veri seti dağılımı. Eski benchmark çıktılarında
+  ``checkpoints/synthetic/splits.csv`` + ``data/4_synthetic_tr_en/metadata.csv`` kullanılır (varsa).
+
+Kalibrasyon: kararlar seçili modelin ayrı belge / piksel kalibrasyonuyla verilir (``predict.Calibration``);
+val'de öğrenilmemiş kalibrasyonlar "kalibre edilmemiş" olarak işaretlenir.
 
 Bir kaynak yoksa ilgili grafik yerine onu üretecek komut gösterilir.
 """
@@ -23,6 +28,7 @@ Bir kaynak yoksa ilgili grafik yerine onu üretecek komut gösterilir.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -32,25 +38,41 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT, MIN_REGION_FRACTION
+from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT, MIN_REGION_FRACTION, Calibration
 from src.metrics import expected_calibration_error, fit_temperature, roc_auc, sigmoid
-from src.model_registry import EXPERIMENTAL, KNOWN_MODELS, describe
+from src.model_registry import EXPERIMENTAL, KNOWN_MODELS, calibration_label, describe
+
+# plotly express, tek bir ``color`` sütunuyla gruplarken pandas'ın ``get_group`` çağrısını uzunluk-1 listeyle
+# yapıyor (pandas ≥ 2.2 FutureWarning). Uyarı bu modüldeki kodu değil plotly'nin iç kodunu ilgilendirir.
+warnings.filterwarnings("ignore", message=r"When grouping with a length-1 list-like", category=FutureWarning)
 
 RESULTS_ROOT = Path("results")
 #: Bu sayının altında sahte örnek içeren kırılım satırları "küçük örneklem" diye işaretlenir.
 SMALL_SAMPLE = 10
 HISTORY_GLOBS = ("runs/**/history.csv", "checkpoints/**/history.csv")
-SYN_META = Path("data/4_synthetic_tr_en/metadata.csv")
-STAGEB_SPLITS = Path("checkpoints/synthetic/splits.csv")
+#: CSV'si olmayan çalışmalarda geçmiş checkpoint'in ``history`` anahtarından okunur.
+HISTORY_CHECKPOINT_GLOBS = ("checkpoints/**/best.pth", "runs/**/best.pth")
+#: Yalnızca eski (``benchmark.py --legacy-sets``) çıktılar için veri seti dağılımı kaynağı.
+LEGACY_SYN_META = Path("data/4_synthetic_tr_en/metadata.csv")
+LEGACY_STAGEB_SPLITS = Path("checkpoints/synthetic/splits.csv")
 
 # Kategorik sıra sabittir (referans palet, ışık modu): 1 mavi, 2 turuncu, 3 su yeşili, 4 sarı
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
 MUTED = "#8a8984"
 LABEL_NAMES = {0: "Orijinal", 1: "Sahte"}
 LABEL_COLORS = {"Orijinal": SERIES[0], "Sahte": SERIES[1]}
-SUBSET_NAMES = {"synthetic_test": "Sentetik test", "synthetic_unseen": "Sentetik (görülmemiş)",
-                "aiforgedoc_ood": "AIForge-Doc (OOD)"}
-SUBSET_COLORS = dict(zip(SUBSET_NAMES.values(), SERIES))
+#: Alt küme adları: yeni protokolde ``source`` sütunu (``benchmark.py --splits``), eskide sabit kümeler.
+SUBSET_NAMES = {"real_forged": "Gerçek tabanlı sahte (test)", "synthetic": "Sentetik v4 (test)",
+                "human_forged": "Gönüllü sahtecilik", "diffusion_forged": "Difüzyon sahteciliği",
+                "aiforgedoc": "AIForge-Doc (OOD)", "sroie2019": "SROIE2019 (OOD)",
+                "synthetic_test": "Sentetik test (eski)", "synthetic_unseen": "Sentetik (görülmemiş, eski)",
+                "aiforgedoc_ood": "AIForge-Doc (OOD, eski)"}
+
+
+def subset_colors(names) -> dict[str, str]:
+    """Mevcut alt kümelere sabit sırayla renk (4'ten fazlası gri tonlara düşer)."""
+    names = list(dict.fromkeys(names))
+    return {n: (SERIES[i] if i < len(SERIES) else MUTED) for i, n in enumerate(names)}
 SEQUENTIAL = "Blues"
 DIVERGING = [[0.0, SERIES[1]], [0.5, "#d9d8d3"], [1.0, SERIES[0]]]
 
@@ -162,7 +184,21 @@ def pick_result_dir(kind: str, selected_ckpt: Optional[str], title: str) -> Opti
 
 
 def find_histories() -> list[Path]:
-    return sorted({p for g in HISTORY_GLOBS for p in Path(".").glob(g)})
+    """``history.csv`` dosyaları + CSV'si olmayan klasörlerdeki ``best.pth`` (geçmiş checkpoint içinde olabilir)."""
+    csvs = {p for g in HISTORY_GLOBS for p in Path(".").glob(g)}
+    folders = {p.parent for p in csvs}
+    ckpts = {p for g in HISTORY_CHECKPOINT_GLOBS for p in Path(".").glob(g) if p.parent not in folders}
+    return sorted(csvs | ckpts)
+
+
+@st.cache_data(show_spinner="Eğitim geçmişi okunuyor...")
+def load_history_cached(path: str, stamp: float) -> Optional[pd.DataFrame]:
+    from src.models import load_history
+
+    try:
+        return load_history(path)
+    except Exception:  # Bozuk/eksik checkpoint
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -181,15 +217,17 @@ def region_at(res: dict, sel: np.ndarray, ti: int) -> Optional[np.ndarray]:
     return None if res["max_region"] is None else res["max_region"][sel, ti]
 
 
-def decisions(score: pd.Series, max_pixel: pd.Series, region: Optional[np.ndarray], threshold: float) -> pd.Series:
-    """``predict.is_forged`` kuralının vektörel hâli.
+def decisions(score: pd.Series, max_pixel: pd.Series, region: Optional[np.ndarray], threshold: float,
+              pixel_threshold: Optional[float] = None) -> pd.Series:
+    """``predict.is_forged`` kuralının vektörel hâli (``threshold`` = belge eşiği).
 
-    ``region``: eşiği geçen en büyük bağlantılı bölgenin sayfa oranı (``benchmark.py`` → ``max_region``).
+    ``region``: piksel eşiğini geçen en büyük bağlantılı bölgenin sayfa oranı (``benchmark.py`` → ``max_region``).
     Eşik ızgarası 0.05 adımlıdır; ızgara dışı eşiklerde en yakın ızgara eşiğinin bölge oranı kullanılır.
-    ``None`` ise (eski çıktılar) piksel koşulu eski ``max_pixel >= threshold`` kuralına düşer.
+    ``None`` ise (eski çıktılar) piksel koşulu eski ``max_pixel >= piksel eşiği`` kuralına düşer.
     """
+    pixel_threshold = threshold if pixel_threshold is None else pixel_threshold
     hybrid = (score >= threshold) & (max_pixel >= CLEAN_PIXEL_LIMIT)
-    pixel = max_pixel >= threshold if region is None else np.asarray(region) >= MIN_REGION_FRACTION
+    pixel = max_pixel >= pixel_threshold if region is None else np.asarray(region) >= MIN_REGION_FRACTION
     return hybrid | pixel
 
 
@@ -258,11 +296,17 @@ def section_evaluation(ev: dict, directory: Path) -> None:
     """``evaluate.py`` özeti: küme başına uygulama kararının başarımı ve kırılım tabloları."""
     meta, summary = ev["meta"], ev["summary"]
     if meta:
-        st.caption(f"Kaynak: `{directory.as_posix()}/summary.csv` · T={meta.get('temperature', float('nan')):.3f} · "
-                   f"karar eşiği={meta.get('threshold', float('nan')):.2f} (val'de hedef FPR ≤ "
-                   f"{meta.get('target_fpr', float('nan')):.2f}; val FPR={meta.get('val_fpr', float('nan')):.3f}, "
-                   f"TPR={meta.get('val_tpr', float('nan')):.3f}). Kararlar uygulamadaki `is_forged` kuralıdır; "
-                   "yan paneldeki eşik bu bölümü değiştirmez.")
+        def num(key: str, fallback: str = "") -> float:
+            value = meta.get(key, meta.get(fallback) if fallback else None)
+            return float("nan") if value is None else float(value)
+
+        calibrated = meta.get("calibrated")
+        status = "" if calibrated is None else (" · **kalibre**" if calibrated else " · **kalibre edilmemiş**")
+        st.caption(f"Kaynak: `{directory.as_posix()}/summary.csv` · belge T={num('doc_temperature', 'temperature'):.3f}, "
+                   f"eşik={num('doc_threshold', 'threshold'):.2f} · piksel T={num('pixel_temperature', 'temperature'):.3f}, "
+                   f"eşik={num('pixel_threshold', 'threshold'):.2f} (val'de hedef FPR ≤ {num('target_fpr'):.2f}; "
+                   f"val FPR={num('val_fpr'):.3f}, TPR={num('val_tpr'):.3f}){status}. Kararlar uygulamadaki "
+                   "`is_forged` kuralıdır; yan paneldeki ayarlar bu bölümü değiştirmez.")
     for key, row in summary.iterrows():
         st.markdown(f"**{key}**")
         k = st.columns(5)
@@ -303,7 +347,8 @@ def _no_results(selected_ckpt: Optional[str]) -> None:
             f"```\npython benchmark.py --checkpoint {ckpt} --ocr      # ~15 dk (CPU)\n```")
 
 
-def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: float, temperature: float) -> None:
+def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, cal: Calibration) -> None:
+    threshold, temperature = cal.pixel_threshold, cal.doc_temperature
     st.markdown("### A. Model Performansı ve Kalibrasyon")
     y = df["label"].to_numpy()
     score = df["doc_score"].to_numpy()
@@ -344,7 +389,7 @@ def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold:
     pf1, piou = f1_iou(counts[:, 0], counts[:, 1], counts[:, 2])
     doc_f1 = []
     for i, t in enumerate(thr):
-        pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, i), t).to_numpy()
+        pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, i), cal.doc_threshold, t).to_numpy()
         tp, fp, fn = (pred & (y == 1)).sum(), (pred & (y == 0)).sum(), (~pred & (y == 1)).sum()
         doc_f1.append(f1_iou(tp, fp, fn)[0])
     fig = go.Figure()
@@ -352,7 +397,7 @@ def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold:
     _line(fig, thr, piou, "Piksel IoU", SERIES[1])
     _line(fig, thr, doc_f1, "Belge F1 (karar kuralı)", SERIES[2])
     fig.add_vline(x=threshold, line=dict(color=MUTED, width=1, dash="dash"))
-    fig.add_annotation(x=threshold, y=0.97, yref="paper", text=f"seçili eşik {threshold:.2f}", showarrow=False,
+    fig.add_annotation(x=threshold, y=0.97, yref="paper", text=f"seçili piksel eşiği {threshold:.2f}", showarrow=False,
                        xanchor="left", xshift=4, font=dict(size=11))
     if np.isfinite(pf1).any():
         best = thr[int(np.nanargmax(pf1))]
@@ -361,7 +406,8 @@ def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold:
                            xanchor="left", xshift=4, font=dict(size=11))
     fig.update_yaxes(range=[0, 1])
     with c1:
-        _show(_layout(fig, "2 · Eşik ayarı: F1 / IoU – eşik", "Eşik", "Skor"))
+        _show(_layout(fig, f"2 · Piksel eşiği ayarı: F1 / IoU (belge eşiği {cal.doc_threshold:.2f} sabit)",
+                      "Piksel eşiği", "Skor"))
 
     # 3. Kalibrasyon -----------------------------------------------------------------------
     logits = df["doc_logit"].to_numpy()
@@ -397,25 +443,28 @@ def section_performance(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold:
     ])
     fig = px.violin(long, x="Ölçüt", y="Skor", color="Sınıf", box=True, points="all", color_discrete_map=LABEL_COLORS,
                     category_orders={"Sınıf": ["Orijinal", "Sahte"]})
-    fig.add_hline(y=threshold, line=dict(color=MUTED, width=1, dash="dash"), annotation_text=f"eşik {threshold:.2f}")
+    fig.add_hline(y=cal.doc_threshold, line=dict(color=MUTED, width=1, dash="dash"),
+                  annotation_text=f"belge eşiği {cal.doc_threshold:.2f}")
     fig.update_traces(marker=dict(size=8), line=dict(width=2))
     _show(_layout(fig, "4 · Orijinal ve sahte belgelerin skor dağılımı", "", "Olasılık", height=400))
 
 
-def section_matrices(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: float) -> None:
+def section_matrices(df: pd.DataFrame, res: dict, sel: np.ndarray, cal: Calibration) -> None:
     st.markdown("### B. Karar Matrisleri ve Korelasyonlar")
+    threshold = cal.pixel_threshold
     y = df["label"].to_numpy()
     c1, c2 = st.columns(2)
 
     # 5a. Belge düzeyi karmaşıklık matrisi -------------------------------------------------
     ti = int(np.argmin(np.abs(res["thresholds"] - threshold)))
-    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), threshold).to_numpy()
+    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), cal.doc_threshold, threshold).to_numpy()
     cm = np.array([[((y == a) & (pred == b)).sum() for b in (0, 1)] for a in (0, 1)])
     pct = cm / np.maximum(cm.sum(axis=1, keepdims=True), 1)
     text = np.array([[f"{cm[i, j]}<br>(%{pct[i, j] * 100:.0f})" for j in range(2)] for i in range(2)])
     with c1:
         _show(_heatmap(pct, ["Tahmin: Orijinal", "Tahmin: Sahte"], ["Gerçek: Orijinal", "Gerçek: Sahte"], text,
-                       f"5a · Belge düzeyi karmaşıklık matrisi (karar kuralı, eşik {threshold:.2f})", SEQUENTIAL, 0, 1))
+                       f"5a · Belge düzeyi karmaşıklık matrisi (karar kuralı, belge {cal.doc_threshold:.2f} / "
+                       f"piksel {threshold:.2f})", SEQUENTIAL, 0, 1))
 
     # 5b. Piksel düzeyi --------------------------------------------------------------------
     tp, fp, fn, tn = res["counts"][sel, ti].sum(axis=0)
@@ -472,6 +521,10 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
     with c1:
         if rob is not None and len(rob):
             rob = rob[rob["image_path"].isin(sel_paths)]
+            # Yeni çıktılarda "kanal" sütunu: jpeg (Q eğrisi) ve whatsapp (tek nokta); eskide yalnız JPEG.
+            channel = rob["kanal"] if "kanal" in rob else pd.Series("jpeg", index=rob.index)
+            wa = rob[channel == "whatsapp"]
+            rob = rob[channel == "jpeg"]
             g = rob.groupby("quality")
             f1, iou = f1_iou(g["tp"].sum(), g["fp"].sum(), g["fn"].sum())
             q = g.size().index.to_numpy()
@@ -486,7 +539,14 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
             fig.update_yaxes(range=[0, 1])
             _show(_layout(fig, f"8 · JPEG sıkıştırma dayanıklılığı (piksel eşiği {res['meta']['robustness_threshold']:.2f})",
                           "JPEG kalite faktörü (Q)", "Skor"))
-            st.caption(f"{rob['image_path'].nunique()} görsellik alt küme her Q değerinde yeniden sıkıştırıldı.")
+            text = f"{rob['image_path'].nunique()} görsellik alt küme her Q değerinde yeniden sıkıştırıldı."
+            if len(wa):
+                wf1, _ = f1_iou(wa["tp"].sum(), wa["fp"].sum(), wa["fn"].sum())
+                wauc = roc_auc(wa["doc_logit"].to_numpy(), wa["label"].to_numpy()) if wa["label"].nunique() == 2 \
+                    else float("nan")
+                text += (f" WhatsApp benzetimi (uzun kenar ≤ 1600 + JPEG q75): piksel F1 {wf1:.3f}, "
+                         f"belge AUC {wauc:.3f}.")
+            st.caption(text)
         else:
             st.info("Dayanıklılık sonucu yok (`robustness.csv`).")
 
@@ -495,7 +555,10 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
     with c2:
         if histories:
             path = st.selectbox("Eğitim geçmişi", histories, format_func=lambda p: p.as_posix())
-            hist = pd.read_csv(path)
+            hist = load_history_cached(str(path), _mtime(path))
+            if hist is None:
+                st.info(f"`{path.as_posix()}` epoch geçmişi içermiyor (eski checkpoint; `history` anahtarı yok).")
+                hist = pd.DataFrame(columns=["epoch"])
             fig = go.Figure()
             for col, name, color in (("train/loss", "Eğitim kaybı", SERIES[0]), ("val/loss", "Validasyon kaybı", SERIES[1]),
                                      ("train/dice", "Eğitim Dice kaybı", SERIES[2])):
@@ -523,12 +586,37 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
         st.markdown("**Checkpoint'lerde kayıtlı son epoch validasyon metrikleri** (eğitim sırasındaki val bölümü; "
                     "sütun adları dosya adı değil, dosyanın gerçek içeriğidir — bkz. `src/model_registry.py`)")
         st.dataframe(metrics.loc[keep].astype(float).round(4), use_container_width=True)
+        status = pd.DataFrame([{"Model": m.label, "Kalibrasyon": calibration_label(m.path)}
+                               for m in KNOWN_MODELS if Path(m.path).exists()])
+        if not status.empty:
+            st.dataframe(status, hide_index=True, use_container_width=True)
         st.caption("`val/image_fpr` ham belge skoruyla (T=1, eşik 0.5) ölçülür; uygulamanın kararı ise kalibre "
                    "sıcaklık + val'de seçilmiş eşik + piksel kuralıyla verilir (Stage E'de val FPR ≈ 0.05).")
 
 
+def dataset_distribution(meta: dict) -> Optional[tuple[pd.DataFrame, str, str]]:
+    """14 numaralı grafik için (tablo, x sütunu, renk sütunu). Yeni çıktılarda benchmark'ın ``splits``
+    dosyası, eskide Stage B sentetik metadata'sı; hiçbiri yoksa None."""
+    splits_path = meta.get("splits")
+    if splits_path and Path(splits_path).is_file():
+        frame = pd.read_csv(splits_path, keep_default_na=False)
+        frame["Sınıf"] = frame["label"].astype(int).map(LABEL_NAMES)
+        frame["subset_name"] = frame["source"].map(SUBSET_NAMES).fillna(frame["source"])
+        return frame, "subset_name", "Sınıf"
+    if LEGACY_SYN_META.exists():
+        frame = pd.read_csv(LEGACY_SYN_META)
+        if LEGACY_STAGEB_SPLITS.exists():
+            splits = pd.read_csv(LEGACY_STAGEB_SPLITS)
+            splits = splits[splits["source"] == "synthetic"]
+            split_of = dict(zip(splits["image_path"].str.split("/").str[-1], splits["split"]))
+            frame["split"] = frame["image"].str.split("/").str[-1].map(split_of).fillna("—")
+        return frame, "doc_type", "lang"
+    return None
+
+
 def section_dataset(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: float) -> None:
     st.markdown("### D. Veri Seti ve Tahrifat Karakteristikleri")
+    subset_colors_map = subset_colors(df["subset_name"])
     ti = int(np.argmin(np.abs(res["thresholds"] - threshold)))
     tp, fp, fn, _ = res["counts"][sel, ti].T
     df = df.assign(pixel_f1=f1_iou(tp, fp, fn)[0])
@@ -545,14 +633,14 @@ def section_dataset(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: flo
                       "Piksel F1"))
     order = {"subset_name": [n for n in SUBSET_NAMES.values() if n in set(df["subset_name"])]}
     fig = px.box(forged, x="subset_name", y=forged["gt_ratio"] * 100, points="all", color="subset_name",
-                 color_discrete_map=SUBSET_COLORS, category_orders=order, labels={"y": "Sahte alan (%)"})
+                 color_discrete_map=subset_colors_map, category_orders=order, labels={"y": "Sahte alan (%)"})
     fig.update_traces(marker=dict(size=8), line=dict(width=2))
     with c2:
         _show(_layout(fig, "12 · Sahte alan kaplama oranı (gerçek maske)", "", "Belge alanının %'si"))
 
     c1, c2 = st.columns(2)
     regions = forged.groupby(["gt_regions", "subset_name"]).size().reset_index(name="Belge sayısı")
-    fig = px.bar(regions, x="gt_regions", y="Belge sayısı", color="subset_name", color_discrete_map=SUBSET_COLORS,
+    fig = px.bar(regions, x="gt_regions", y="Belge sayısı", color="subset_name", color_discrete_map=subset_colors_map,
                  category_orders=order, barmode="group")
     fig.update_layout(bargap=0.15, bargroupgap=0.05)
     fig.update_xaxes(dtick=1)
@@ -561,34 +649,34 @@ def section_dataset(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: flo
         _show(_layout(fig, "13 · Belge başına tahrif edilmiş bölge sayısı", "Bağlantılı bölge sayısı", "Belge sayısı"))
 
     with c2:
-        if SYN_META.exists():
-            meta = pd.read_csv(SYN_META)
-            if STAGEB_SPLITS.exists():
-                splits = pd.read_csv(STAGEB_SPLITS)
-                splits = splits[splits["source"] == "synthetic"]
-                split_of = dict(zip(splits["image_path"].str.split("/").str[-1], splits["split"]))
-                meta["split"] = meta["image"].str.split("/").str[-1].map(split_of).fillna("—")
-            choice = st.radio("Bölüm", ["Tümü", "train", "val", "test"], horizontal=True, key="dist_split")
-            m = meta if choice == "Tümü" else meta[meta.get("split") == choice]
-            dist = m.groupby(["doc_type", "lang"]).size().reset_index(name="Görsel sayısı")
-            fig = px.bar(dist, x="doc_type", y="Görsel sayısı", color="lang",
-                         color_discrete_map={"tr": SERIES[0], "en": SERIES[1]}, barmode="relative",
-                         category_orders={"lang": ["tr", "en"]}, labels={"doc_type": "Belge tipi", "lang": "Dil"})
+        found = dataset_distribution(res["meta"])
+        if found is not None:
+            meta, xcol, ccol = found
+            if "split" in meta and meta["split"].nunique() > 1:
+                choice = st.radio("Bölüm", ["Tümü", *sorted(meta["split"].unique())], horizontal=True, key="dist_split")
+                meta = meta if choice == "Tümü" else meta[meta["split"] == choice]
+            dist = meta.groupby([xcol, ccol]).size().reset_index(name="Görsel sayısı")
+            colors = ({"tr": SERIES[0], "en": SERIES[1]} if ccol == "lang" else LABEL_COLORS)
+            fig = px.bar(dist, x=xcol, y="Görsel sayısı", color=ccol, color_discrete_map=colors, barmode="relative",
+                         labels={"doc_type": "Belge tipi", "lang": "Dil", "subset_name": "Alt küme"})
             fig.update_layout(bargap=0.35)
             # 2px yüzey aralığı: yığılmış segmentler arasında arka plan rengi çizgi
             fig.update_traces(marker_line=dict(width=2, color="rgba(255,255,255,1)"))
-            _show(_layout(fig, "14 · Stage B sentetik veri: belge tipi × dil", "Belge tipi", "Görsel sayısı"))
-            st.caption("Veri setinde dekont, fatura ve fiş bulunur; öğrenci belgesi örneği yoktur.")
+            title = ("14 · Değerlendirme bölmesi: alt küme × sınıf" if xcol == "subset_name"
+                     else "14 · Stage B sentetik veri: belge tipi × dil (eski)")
+            _show(_layout(fig, title, "", "Görsel sayısı"))
+        else:
+            st.info("14 · Veri seti dağılımı için benchmark'ın splits dosyası bulunamadı.")
 
     c1, c2 = st.columns(2)
     hover = {"subset_name": True, "width": True, "height": True, "pixel_f1": ":.3f", "infer_s": ":.2f"}
-    fig = px.scatter(df, x="megapixels", y="infer_s", color="subset_name", color_discrete_map=SUBSET_COLORS,
+    fig = px.scatter(df, x="megapixels", y="infer_s", color="subset_name", color_discrete_map=subset_colors_map,
                      hover_data=hover, category_orders=order, labels={"megapixels": "Çözünürlük (MP)", "infer_s": "Çıkarım süresi (s)"})
     fig.update_traces(marker=dict(size=9, line=dict(width=2, color="rgba(255,255,255,0.8)")))
     with c1:
         _show(_layout(fig, "15a · Çözünürlük – çıkarım süresi", "Çözünürlük (megapiksel)", "Süre (s)"))
     fig = px.scatter(forged.assign(pixel_f1=forged["pixel_f1"]), x="megapixels", y="pixel_f1", color="subset_name",
-                     color_discrete_map=SUBSET_COLORS, hover_data=hover, category_orders=order,
+                     color_discrete_map=subset_colors_map, hover_data=hover, category_orders=order,
                      labels={"megapixels": "Çözünürlük (MP)", "pixel_f1": "Piksel F1"})
     fig.update_traces(marker=dict(size=9, line=dict(width=2, color="rgba(255,255,255,0.8)")))
     with c2:
@@ -599,7 +687,9 @@ def section_dataset(df: pd.DataFrame, res: dict, sel: np.ndarray, threshold: flo
 # Giriş noktası
 # ---------------------------------------------------------------------------
 
-def render_dashboard(threshold: float, temperature: float, selected_ckpt: Optional[str]) -> None:
+def render_dashboard(cal: Calibration, selected_ckpt: Optional[str], dev_mode: bool = False) -> None:
+    """``cal``: seçili modelin (geliştirici modunda ayarlanmış olabilir) kalibrasyonu."""
+    threshold, temperature = cal.pixel_threshold, cal.doc_temperature
     st.subheader("🧪 Değerlendirme sonuçları (evaluate.py)")
     eval_dir = pick_result_dir("evaluate", selected_ckpt, "Değerlendirme")
     if eval_dir is not None:
@@ -622,9 +712,14 @@ def render_dashboard(threshold: float, temperature: float, selected_ckpt: Option
     meta = res["meta"]
     df = res["per_image"].copy()
     df["subset_name"] = df["subset"].map(SUBSET_NAMES).fillna(df["subset"])
+    bench_pixel_t = float(meta.get("pixel_temperature", meta.get("temperature", 1.0)))
     st.caption(f"Kaynak: `{bench_dir.as_posix()}` · {meta['created']} · checkpoint `{meta['checkpoint']}` · "
-               f"mod `{meta['mode']}` · piksel olasılıkları T={meta['temperature']:.3f} ile üretildi. "
-               "Eşik ve sıcaklık yan paneldeki değerlerden alınır.")
+               f"mod `{meta['mode']}` · bölme `{meta.get('splits', 'eski sabit kümeler')}` · piksel olasılıkları "
+               f"T={bench_pixel_t:.3f} ile üretildi. Belge sıcaklığı ve eşikler yan paneldeki değerlerden alınır.")
+    if abs(bench_pixel_t - cal.pixel_temperature) > 1e-3:
+        st.warning(f"Benchmark piksel haritaları T={bench_pixel_t:.3f} ile üretilmiş; seçili piksel T'si "
+                   f"{cal.pixel_temperature:.3f}. Piksel eşiğine bağlı grafikler yeniden `benchmark.py` "
+                   "çalıştırılana kadar yaklaşık kalır.")
     if res["max_region"] is None:
         st.warning("Bu `benchmark.py` çıktısında bölge alanı (`max_region`) yok; belge kararları eski "
                    "`maks. piksel ≥ eşik` kuralıyla hesaplanıyor ve arayüzdeki karardan farklı olabilir. "
@@ -645,7 +740,7 @@ def render_dashboard(threshold: float, temperature: float, selected_ckpt: Option
 
     # Özet kartları
     y = df["label"].to_numpy()
-    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), threshold).to_numpy()
+    pred = decisions(df["doc_score"], df["max_pixel"], region_at(res, sel, ti), cal.doc_threshold, threshold).to_numpy()
     pf1, piou = f1_iou(tp.sum(), fp.sum(), fn.sum())
     ece, _ = expected_calibration_error(sigmoid(df["doc_logit"].to_numpy() / temperature), y, n_bins=10)
     k = st.columns(5)
@@ -655,7 +750,7 @@ def render_dashboard(threshold: float, temperature: float, selected_ckpt: Option
     k[3].metric(f"Piksel F1 @ {res['thresholds'][ti]:.2f}", f"{pf1:.3f}", delta=f"IoU {piou:.3f}", delta_color="off")
     k[4].metric(f"ECE (T={temperature:.2f})", f"{ece:.3f}")
 
-    section_performance(df, res, sel, threshold, temperature)
-    section_matrices(df, res, sel, threshold)
+    section_performance(df, res, sel, cal)
+    section_matrices(df, res, sel, cal)
     section_robustness(res, set(df["image_path"]), temperature)
     section_dataset(df, res, sel, threshold)

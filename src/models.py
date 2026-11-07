@@ -291,6 +291,33 @@ def save_checkpoint(path: str | Path, model: DualStreamForensicNet, config: dict
     tmp.replace(path)
 
 
+def load_history(path: str | Path):
+    """Eğitim geçmişi (epoch başına bir satır) ``pandas.DataFrame`` olarak; bulunamazsa None.
+
+    * Klasör: önce ``history.csv``, yoksa ``best.pth`` / ``last.pth`` içindeki ``history`` anahtarı.
+    * ``.csv``: doğrudan okunur. ``.pth``: checkpoint'in ``history`` anahtarı (``train.py`` yazar; Kaggle'dan
+      yalnız ``best.pth`` indirildiğinde de geçmiş korunur). Eski checkpoint'lerde bu anahtar yoktur.
+    """
+    import pandas as pd
+
+    path = Path(path)
+    if path.is_dir():
+        if (path / "history.csv").is_file():
+            return pd.read_csv(path / "history.csv")
+        for name in ("last.pth", "best.pth"):
+            if (path / name).is_file():
+                found = load_history(path / name)
+                if found is not None:
+                    return found
+        return None
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path) if path.is_file() else None
+    if not path.is_file():
+        return None
+    history = torch.load(path, map_location="cpu", weights_only=False).get("history")
+    return pd.DataFrame(history) if history else None
+
+
 def load_model(path: str | Path, device: torch.device | str = "cpu"
                ) -> tuple[DualStreamForensicNet, dict[str, Any]]:
     """Kontrol noktasından modeli kurar (önceden eğitilmiş ağırlık indirmeden) ve eval moduna alır."""
@@ -343,6 +370,28 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
         (prob_map (H, W) float32 [0,1], doc_logit float) — ``return_windows`` ile üçüncü öğe
         olarak pencere logit'leri (float32 dizi).
     """
+    maps, doc_logit, window_logits, _ = sliding_window_maps(model, image, tile, overlap, batch_size, (temperature,),
+                                                            top_k_ratio)
+    if return_windows:
+        return maps[0], doc_logit, window_logits
+    return maps[0], doc_logit
+
+
+@torch.no_grad()
+def sliding_window_maps(model: DualStreamForensicNet, image: torch.Tensor, tile: int = 512, overlap: float = 0.25,
+                        batch_size: int = 4, temperatures: tuple[float, ...] = (1.0,), top_k_ratio: float = 0.10,
+                        return_logit_map: bool = False):
+    """``sliding_window_predict``'in genel hâli: tek geçişte birden çok piksel sıcaklığı.
+
+    Model bir kez çalıştırılır; her ``temperatures`` değeri için ayrı olasılık haritası (örtüşmede
+    ``sigmoid(logit / T)`` ortalaması) biriktirilir. Değerlendirmede kalibre piksel haritası ile eski tek-T
+    haritası aynı maliyetle karşılaştırılabilir (bkz. ``evaluate.py``).
+
+    Returns:
+        (haritalar listesi, doc_logit, pencere logit'leri, logit haritası | None). ``return_logit_map`` ile
+        örtüşmede ortalanmış **ham piksel logit'i** haritası (piksel sıcaklığı NLL ile uydurulurken
+        kullanılır; olasılık uzayındaki doygunluktan etkilenmez).
+    """
     device = next(model.parameters()).device
     _, h, w = image.shape
     ph, pw = max(h, tile), max(w, tile)
@@ -354,22 +403,27 @@ def sliding_window_predict(model: DualStreamForensicNet, image: torch.Tensor, ti
     stride = max(32, int(tile * (1 - overlap)))
     coords = [(y, x) for y in _tile_starts(ph, tile, stride) for x in _tile_starts(pw, tile, stride)]
 
-    prob_sum = torch.zeros((ph, pw), device=device)
+    prob_sums = [torch.zeros((ph, pw), device=device) for _ in temperatures]
+    logit_sum = torch.zeros((ph, pw), device=device) if return_logit_map else None
     count = torch.zeros((ph, pw), device=device)
     window_logits = []
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i + batch_size]
         batch = torch.stack([padded[:, y:y + tile, x:x + tile] for y, x in chunk]).to(device)
         mask_logits, cls_logit = model(batch)
-        probs = torch.sigmoid(mask_logits[:, 0].float() / temperature)
-        for (y, x), p in zip(chunk, probs):
-            prob_sum[y:y + tile, x:x + tile] += p
+        logits = mask_logits[:, 0].float()
+        for prob_sum, t in zip(prob_sums, temperatures):
+            for (y, x), p in zip(chunk, torch.sigmoid(logits / t)):
+                prob_sum[y:y + tile, x:x + tile] += p
+        for j, (y, x) in enumerate(chunk):
             count[y:y + tile, x:x + tile] += 1
+            if logit_sum is not None:
+                logit_sum[y:y + tile, x:x + tile] += logits[j]
         window_logits.append(cls_logit.float())
     window_logits = torch.cat(window_logits)
     k = max(1, math.ceil(top_k_ratio * window_logits.numel()))
     doc_logit = float(window_logits.topk(k).values.mean())
-    prob_map = (prob_sum / count.clamp_min(1))[:h, :w].cpu().numpy().astype(np.float32)
-    if return_windows:
-        return prob_map, doc_logit, window_logits.cpu().numpy().astype(np.float32)
-    return prob_map, doc_logit
+    norm = count.clamp_min(1)
+    maps = [(s / norm)[:h, :w].cpu().numpy().astype(np.float32) for s in prob_sums]
+    logit_map = None if logit_sum is None else (logit_sum / norm)[:h, :w].cpu().numpy().astype(np.float32)
+    return maps, doc_logit, window_logits.cpu().numpy().astype(np.float32), logit_map

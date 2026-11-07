@@ -1,5 +1,6 @@
 """
-Öğrenme eğrileri: ``train.py``'nin yazdığı ``history.csv`` dosyalarından train/val kaybı ve val metrikleri.
+Öğrenme eğrileri: ``train.py``'nin yazdığı ``history.csv`` dosyalarından (yoksa ``best.pth`` / ``last.pth``
+içindeki ``history`` anahtarından) train/val kaybı ve val metrikleri.
 
 Aşırı öğrenme (overfitting) ve yetersiz öğrenmenin (underfitting) raporlanmasının standart yolu:
 
@@ -10,27 +11,31 @@ Aşırı öğrenme (overfitting) ve yetersiz öğrenmenin (underfitting) raporla
 Kullanım:
     python tools/plot_history.py --run "Stage A=checkpoints/stageA" --run "Stage E=checkpoints/stageE" \\
         --monitor val/score --out results/learning_curves.png
+    python tools/plot_history.py --run "Stage F=checkpoints/stageF/best.pth" --monitor val/decision_tpr_at_fpr02
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.models import load_history  # noqa: E402
 
 PANELS = [("Kayıp", ["train/loss", "val/loss"]),
           ("Piksel F1 (= Dice) / IoU", ["val/pixel_f1", "val/pixel_iou"]),
-          ("Belge düzeyi", ["val/image_auc", "val/image_tpr_at_fpr02", "val/image_fpr"])]
+          ("Belge düzeyi", ["val/image_auc", "val/image_tpr_at_fpr02", "val/decision_tpr_at_fpr02", "val/image_fpr"])]
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="history.csv öğrenme eğrileri")
-    p.add_argument("--run", action="append", required=True, help="'Ad=checkpoints/klasör' (history.csv içeren)")
+    p.add_argument("--run", action="append", required=True,
+                   help="'Ad=checkpoints/klasör' (history.csv ya da best/last.pth içeren), .csv ya da .pth yolu")
     p.add_argument("--monitor", default="val/score", help="En iyi epoch'u belirleyen metrik")
     p.add_argument("--mode", choices=["max", "min"], default="max")
     p.add_argument("--out", default="results/learning_curves.png")
@@ -39,8 +44,10 @@ def main() -> None:
     runs = []
     for spec in args.run:
         name, folder = spec.split("=", 1)
-        path = Path(folder) / "history.csv" if Path(folder).is_dir() else Path(folder)
-        runs.append((name, pd.read_csv(path)))
+        hist = load_history(folder)
+        if hist is None:
+            raise SystemExit(f"{folder}: history.csv yok ve checkpoint 'history' anahtarı içermiyor (eski checkpoint).")
+        runs.append((name, hist))
 
     fig, axes = plt.subplots(len(runs), len(PANELS), figsize=(6 * len(PANELS), 4 * len(runs)), squeeze=False)
     for r, (name, hist) in enumerate(runs):

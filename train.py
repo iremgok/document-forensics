@@ -17,8 +17,9 @@ Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
     ``<run_dir>/stageA_best.pth`` olarak saklanır.
   * ``stageB``: ``stageA_best.pth`` yüklenir; Türkçe sentetik + SROIE2019 üzerinde
     lr=1e-5 ile ince ayar. SROIE2019 bu aşamada eğitime girdiği için OOD değildir.
-  * ``stageC``: Türkçe transfer öğrenme. ``checkpoints/finetuned_multilingual.pth`` (Stage B)
-    yüklenir; **yalnızca** TR/EN sentetik belgelerle (DocTamper ve SROIE hariç) lr=1e-5,
+  * ``stageC``: Türkçe transfer öğrenme. ``checkpoints/finetuned_multilingual_stageB.pth`` (gerçek Stage B;
+    eski ``finetuned_multilingual.pth`` bir Stage C ara modeliyle ezildiği için arşivlendi) yüklenir;
+    **yalnızca** TR/EN sentetik belgelerle (DocTamper ve SROIE hariç) lr=1e-5,
     AdamW (weight decay 1e-4), 12 epoch ince ayar. Model seçimi ve erken durdurma yalnızca
     Türkçe sentetik belgelerden oluşan validasyon kümesiyle (``--val-lang tr``) yapılır;
     böylece DocTamper ağırlıklı genel val skoru seçimi yönlendirmez. Düşük lr, Stage A/B'de
@@ -26,7 +27,22 @@ Aşamalı eğitim (``--stage``; açıkça verilen argümanlar ön ayarı ezer):
   * ``stageE``: Yanlış alarm düzeltmesi. ``checkpoints/base_doctamper.pth`` (Stage A) yüklenir
     (Stage C/D'nin "alan konumu = sahte" ezberi taşınmaz); düzenleme izli sentetik v4 +
     gerçek belgeler ve onlardan ``src/forge_real.py`` ile üretilen sahteler (``data/8_real_forged``)
-    ile dengeli örneklemeyle eğitilir.
+    ile dengeli örneklemeyle eğitilir. Model seçimi çalışma noktasına göre yapılır
+    (``monitor = decision_tpr_at_fpr02``, aşağıya bakın).
+  * ``stageF``: Stage E'den ince ayar (``checkpoints/stageE/best.pth``), düşük lr (2e-5), zayıf türler
+    ağırlıklı örneklenir (``--type-weights copy_move=3 digit_change=3 delete=2``); seçim Stage E ile aynı.
+
+Model seçimi (``--monitor``; komut satırında verilirse ön ayardan önce gelir):
+  * ``score`` = (piksel F1 + belge AUC) / 2 (genel varsayılan),
+  * ``image_tpr_at_fpr02``: yalnız **belge skoruyla** %2 yanlış alarmda yakalama oranı,
+  * ``decision_tpr_at_fpr02`` (Stage E/F ön ayarı): uygulamadaki **karar kuralıyla** (``predict.is_forged``:
+    belge koşulu + piksel bölgesi koşulu) %2 yanlış alarmda yakalama oranı. Val'de kalibrasyon henüz yoktur;
+    bu yüzden (belge eşiği, piksel eşiği) çifti val üzerinde **taranır** ve FPR ≤ %2 koşulundaki en yüksek
+    TPR alınır (``predict.select_operating_point``; ``evaluate.py``'nin kalibrasyonda yaptığının aynısı).
+    Belge eşiği adayları val belge skorlarının kendisidir; sıcaklık sıralamayı değiştirmediği için belge
+    tarafı T'den bağımsızdır. Piksel eşiği adayları ham olasılık uzayında logit −3…+9 aralığına yayılmış
+    ``DECISION_PIXEL_GRID``'dir (sonradan seçilecek piksel T'si 1-4 aralığında olsa da eşdeğer eşik kapsanır).
+    Maliyet: görüntü başına ~13 bağlantılı bileşen hesabı (2000 val görüntüsünde ~1-2 dk).
 
 Sınıf dengesi: sentetik veri 1 orijinal : 3 sahte olduğundan eğitim varsayılan olarak
 ``WeightedRandomSampler`` ile orijinal/sahte 50/50 örneklenir (``--no-balance`` ile kapatılır).
@@ -44,7 +60,8 @@ Ablasyon ve iyileştirme seçenekleri:
     (DocTamper/DTD müfredatı).
   * ``--holdout-issuers`` / ``--holdout-doc-types``: bir kurumu / belge tipini tamamen teste ayırır
     (görülmemiş şablona genelleme).
-  * ``--monitor image_tpr_at_fpr02``: model seçimi uygulamadaki çalışma noktasına göre (%2 yanlış alarmda TPR).
+  * ``--monitor decision_tpr_at_fpr02``: model seçimi uygulamadaki çalışma noktasına göre (karar kuralıyla %2
+    yanlış alarmda TPR; Stage E/F ön ayarı). ``image_tpr_at_fpr02`` aynı ölçütün yalnız belge skoruyla olanıdır.
   * ``--type-weights copy_move=3 digit_change=3 delete=2``: zayıf sahtecilik türlerini sahte sınıf içinde
     daha sık örnekler (Stage E kırılımında tespit oranı < %50 olan türler).
   * Ana sonuçlar için farklı ``--seed`` değerleriyle (ör. 42, 43, 44) en az 3 tekrar yapılıp
@@ -60,14 +77,14 @@ Kaggle'da ``/kaggle/working`` varsa varsayılan ``--run-dir`` odur.
     python train.py --stage stageA --resume /kaggle/working/last.pth   # kesintiden sonra
     python train.py --stage stageB
     python train.py --stage stageC                       # Stage B → TR sentetik ince ayar
-    python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual.pth
+    python train.py --stage stageC --init /kaggle/input/.../finetuned_multilingual_stageB.pth
     python train.py --stage stageE                       # Stage A → izli sentetik v4 + gerçek belgeler/sahteleri
     python train.py --stage stageE --streams rgb --run-dir checkpoints/abl_rgb       # ablasyon: yalnız RGB
     python train.py --stage stageE --streams rgb+srm+dct --flip-aug-p 0.5 --encoder-lr-mult 0.1 \
         --jpeg-curriculum 3 --monitor image_tpr_at_fpr02 --run-dir checkpoints/stageF  # iyileştirilmiş model
     python train.py --stage stageE --holdout-issuers garanti --run-dir checkpoints/holdout_garanti
-    python train.py --stage stageE --init checkpoints/stageE/best.pth --streams rgb+srm+dct \
-        --type-weights copy_move=3 digit_change=3 delete=2 --lr 3e-5 --run-dir checkpoints/stageF   # Stage F
+    python train.py --stage stageF                       # Stage E → zayıf türler ağırlıklı ince ayar
+    python train.py --stage stageF --streams rgb+srm+dct  # + DCT akışı (sıfır başlatmalı)
 """
 
 from __future__ import annotations
@@ -90,7 +107,8 @@ from torch.utils.data import DataLoader, RandomSampler, WeightedRandomSampler
 from src.dataset import (REAL_SOURCES, SOURCE_DIRS, ForgeryDataset, apply_holdout, assign_splits, build_manifest,
                          build_transforms, close_lmdb_envs, worker_init_fn)
 from src.losses import ForensicLoss
-from src.metrics import PixelMetrics, image_level_metrics
+from predict import fuse_doc_score, largest_region_fraction, select_operating_point
+from src.metrics import PixelMetrics, image_level_metrics, sigmoid
 from src.models import STREAMS, DualStreamForensicNet, load_compatible_state, save_checkpoint, sliding_window_predict
 
 logger = logging.getLogger("train")
@@ -103,12 +121,21 @@ STAGE_PRESETS: dict[str, dict[str, Any]] = {
     "stageA": {"sources": ["doctamper"], "lr": 3e-4},
     "stageB": {"sources": ["synthetic", "sroie2019"], "lr": 1e-5, "init": "stageA_best.pth"},
     "stageC": {"sources": ["synthetic"], "lr": 1e-5, "weight_decay": 1e-4, "epochs": 12,
-               "init": "checkpoints/finetuned_multilingual.pth", "val_lang": "tr", "run_dir": "checkpoints/stageC"},
+               "init": "checkpoints/finetuned_multilingual_stageB.pth", "val_lang": "tr",
+               "run_dir": "checkpoints/stageC"},
     "stageE": {"sources": ["synthetic", "real_forged"], "lr": 1e-4, "weight_decay": 1e-4, "epochs": 15,
-               "init": "checkpoints/base_doctamper.pth", "val_lang": "tr", "run_dir": "checkpoints/stageE"},
+               "init": "checkpoints/base_doctamper.pth", "val_lang": "tr", "run_dir": "checkpoints/stageE",
+               "monitor": "decision_tpr_at_fpr02"},
+    "stageF": {"sources": ["synthetic", "real_forged"], "lr": 2e-5, "weight_decay": 1e-4, "epochs": 10,
+               "init": "checkpoints/stageE/best.pth", "val_lang": "tr", "run_dir": "checkpoints/stageF",
+               "monitor": "decision_tpr_at_fpr02",
+               "type_weights": ["copy_move=3", "digit_change=3", "delete=2"]},
 }
 DEFAULTS: dict[str, Any] = {"sources": ["synthetic"], "lr": 3e-4, "init": None, "epochs": 50,
-                            "weight_decay": 1e-4, "val_lang": None}
+                            "weight_decay": 1e-4, "val_lang": None, "monitor": "score", "type_weights": []}
+#: Val'de karar kuralı taraması için piksel eşikleri (ham olasılık; logit −3 … +9, 13 nokta).
+DECISION_PIXEL_GRID = sigmoid(np.linspace(-3.0, 9.0, 13))
+MONITORS = ("score", "pixel_f1", "image_auc", "image_tpr_at_fpr02", "decision_tpr_at_fpr02", "loss")
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,7 +144,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--stage", default=None, choices=sorted(STAGE_PRESETS),
                    help="Aşamalı eğitim ön ayarı: stageA = DocTamper temel eğitim, "
                         "stageB = stageA_best.pth'den sentetik + SROIE ince ayar (lr=1e-5), "
-                        "stageC = Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi")
+                        "stageC = Stage B'den yalnızca TR/EN sentetik ince ayar, TR val ile model seçimi, "
+                        "stageE = Stage A'dan sentetik v4 + gerçek belgeler, stageF = Stage E'den zayıf türler "
+                        "ağırlıklı ince ayar")
     p.add_argument("--sources", nargs="+", default=None,
                    choices=sorted(SOURCE_DIRS),
                    help="Eğitim/val'de kullanılacak kaynaklar; diğerleri yalnızca test/OOD olur. "
@@ -155,9 +184,10 @@ def parse_args() -> argparse.Namespace:
                    help="Bu kurumların (real:<kurum>/...) tüm belgelerini test kümesine ayır")
     p.add_argument("--holdout-doc-types", nargs="*", default=[],
                    help="Bu belge tiplerinin (doc_type sütunu) tüm belgelerini test kümesine ayır")
-    p.add_argument("--type-weights", nargs="*", default=[],
+    p.add_argument("--type-weights", nargs="*", default=None,
                    help="Sahtecilik türü örnekleme ağırlıkları, ör. copy_move=3 digit_change=3 delete=2. Sahte "
-                        "sınıfın toplam payı değişmez; zayıf türler epoch'ta daha sık görülür (diğerleri 1).")
+                        "sınıfın toplam payı değişmez; zayıf türler epoch'ta daha sık görülür (diğerleri 1). "
+                        "stageF ön ayarı: copy_move=3 digit_change=3 delete=2")
     p.add_argument("--no-balance", action="store_true",
                    help="Orijinal/sahte 50/50 dengeli örneklemeyi kapat (veri setindeki oranla örnekle)")
     p.add_argument("--samples-per-epoch", type=int, default=20000,
@@ -170,9 +200,10 @@ def parse_args() -> argparse.Namespace:
                    help="Her epoch kullanılan sabit val alt kümesi boyutu (tam çözünürlük validasyon "
                         "pahalıdır); 0 = tüm val kümesi. evaluate.py etkilenmez.")
     p.add_argument("--patience", type=int, default=8, help="Erken durdurma sabrı (epoch)")
-    p.add_argument("--monitor", default="score",
-                   choices=["score", "pixel_f1", "image_auc", "image_tpr_at_fpr02", "loss"],
-                   help="score = (pixel_f1 + image_auc) / 2; image_tpr_at_fpr02 = %%2 yanlış alarmda yakalama oranı")
+    p.add_argument("--monitor", default=None, choices=MONITORS,
+                   help="score = (pixel_f1 + image_auc) / 2 (varsayılan); image_tpr_at_fpr02 = belge skoruyla %%2 "
+                        "yanlış alarmda yakalama oranı; decision_tpr_at_fpr02 = karar kuralıyla (stageE/stageF ön "
+                        "ayarı). Komut satırında verilirse ön ayardan önce gelir.")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--mp-context", default="spawn", choices=["spawn", "forkserver", "fork"],
                    help="DataLoader worker başlatma yöntemi. spawn: LMDB/OpenCV durumu worker'lara miras "
@@ -279,8 +310,12 @@ class MetricLogger:
     (``--resume``) mevcut dosyanın sonuna eklenir.
     """
 
-    def __init__(self, log_dir: Path, history_path: Optional[Path] = None) -> None:
+    def __init__(self, log_dir: Path, history_path: Optional[Path] = None,
+                 history: Optional[list[dict[str, Any]]] = None) -> None:
         self.history_path = history_path
+        #: Epoch satırları; checkpoint'e ``history`` anahtarıyla da yazılır (yalnız best.pth indirilse bile
+        #: geçmiş kaybolmasın). ``--resume``'da last.pth'deki geçmişle başlar.
+        self.history: list[dict[str, Any]] = list(history or [])
         try:
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(str(log_dir))
@@ -290,6 +325,7 @@ class MetricLogger:
 
     def log(self, epoch: int, metrics: dict[str, float]) -> None:
         logger.info("Epoch %3d | %s", epoch, " | ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
+        self.history = [h for h in self.history if h.get("epoch") != epoch] + [{"epoch": epoch, **metrics}]
         if self.history_path is not None:
             import pandas as pd
 
@@ -348,7 +384,7 @@ def validate(model: DualStreamForensicNet, loader: DataLoader, criterion: Forens
     """
     model.eval()
     pixel = PixelMetrics()
-    doc_logits, labels, losses = [], [], []
+    doc_logits, labels, losses, max_pixels, regions = [], [], [], [], []
     for batch in loader:
         sample = {k: v[0] for k, v in batch.items()}
         with torch.autocast(device_type=next(model.parameters()).device.type, enabled=use_amp):
@@ -357,6 +393,8 @@ def validate(model: DualStreamForensicNet, loader: DataLoader, criterion: Forens
         pixel.update(prob_map, gt)
         doc_logits.append(doc_logit)
         labels.append(int(sample["label"]))
+        max_pixels.append(float(prob_map.max()))
+        regions.append([largest_region_fraction(prob_map, t) for t in DECISION_PIXEL_GRID])
         logits = torch.logit(torch.from_numpy(prob_map).clamp(1e-6, 1 - 1e-6))[None, None]
         out = criterion(logits, torch.tensor([doc_logit]), torch.from_numpy(gt)[None, None])
         losses.append(float(out["loss"]))
@@ -364,9 +402,27 @@ def validate(model: DualStreamForensicNet, loader: DataLoader, criterion: Forens
     metrics["loss"] = float(np.mean(losses)) if losses else float("nan")
     auc = metrics["image_auc"] if not np.isnan(metrics["image_auc"]) else 0.5
     metrics["score"] = (metrics["pixel_f1"] + auc) / 2
-    if np.isnan(metrics["image_tpr_at_fpr02"]):  # val'de tek sınıf: model seçimi piksel F1'e düşer
-        metrics["image_tpr_at_fpr02"] = metrics["pixel_f1"]
+    metrics["decision_tpr_at_fpr02"] = decision_tpr_at_fpr(np.array(doc_logits), np.array(max_pixels),
+                                                           np.array(regions), np.array(labels), 0.02)
+    for key in ("image_tpr_at_fpr02", "decision_tpr_at_fpr02"):
+        if np.isnan(metrics[key]):  # val'de tek sınıf: model seçimi piksel F1'e düşer
+            metrics[key] = metrics["pixel_f1"]
     return {f"val/{k}": v for k, v in metrics.items()}
+
+
+def decision_tpr_at_fpr(doc_logits: np.ndarray, max_pixel: np.ndarray, regions: np.ndarray, labels: np.ndarray,
+                        target_fpr: float) -> float:
+    """Karar kuralının (``predict.is_forged``) FPR ≤ ``target_fpr`` koşulundaki en yüksek TPR'si.
+
+    Kalibrasyon yokken (T=1) belge eşiği adayları belge skorlarının kendisi (+ sonsuz), piksel eşiği adayları
+    ``DECISION_PIXEL_GRID``'dir; çift ``predict.select_operating_point`` ile seçilir. Tek sınıfta NaN.
+    """
+    labels = np.asarray(labels).astype(int)
+    if len(np.unique(labels)) < 2:
+        return float("nan")
+    probs = np.array([fuse_doc_score(float(p), float(m)) for p, m in zip(sigmoid(doc_logits), max_pixel)])
+    candidates = np.r_[np.unique(probs), np.inf]
+    return select_operating_point(probs, max_pixel, regions, labels, candidates, target_fpr)["tpr"]
 
 
 def benchmark_loader(loader: DataLoader, n_batches: int) -> None:
@@ -522,7 +578,10 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=mode, factor=0.5, patience=3)
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     stopper = EarlyStopping(args.patience, mode)
-    tracker = MetricLogger(run_dir / "tensorboard", history_path=run_dir / "history.csv")
+    previous = resume_ckpt.get("history") if resume_ckpt is not None else None
+    if resume_ckpt is not None and previous is None and (run_dir / "history.csv").is_file():
+        previous = pd.read_csv(run_dir / "history.csv").to_dict("records")  # eski last.pth: geçmiş CSV'den
+    tracker = MetricLogger(run_dir / "tensorboard", history_path=run_dir / "history.csv", history=previous)
     config: dict[str, Any] = {"encoder": args.encoder, "crop_size": args.crop_size, "max_side": args.max_side,
                               "sources": args.sources, "seed": args.seed, "stage": args.stage,
                               "val_lang": args.val_lang, "jpeg_aug_p": args.jpeg_aug_p,
@@ -530,7 +589,7 @@ def main() -> None:
                               "streams": args.streams, "flip_aug_p": args.flip_aug_p,
                               "encoder_lr_mult": args.encoder_lr_mult, "jpeg_curriculum": args.jpeg_curriculum,
                               "holdout_issuers": args.holdout_issuers, "holdout_doc_types": args.holdout_doc_types,
-                              "type_weights": type_weights}
+                              "type_weights": type_weights, "monitor": args.monitor}
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     start_epoch = 1
@@ -553,7 +612,8 @@ def main() -> None:
 
     def training_state() -> dict[str, Any]:
         return {"optimizer_state": optimizer.state_dict(), "scheduler_state": scheduler.state_dict(),
-                "scaler_state": scaler.state_dict(), "stopper_state": stopper.state_dict(), "stage": args.stage}
+                "scaler_state": scaler.state_dict(), "stopper_state": stopper.state_dict(), "stage": args.stage,
+                "history": tracker.history}
 
     # --- 4) Eğitim döngüsü ---------------------------------------------------------
     if curriculum and start_epoch > args.jpeg_curriculum:
@@ -579,7 +639,7 @@ def main() -> None:
         monitored = metrics[f"val/{args.monitor}"]
         scheduler.step(monitored)
         if stopper.step(monitored):
-            save_checkpoint(run_dir / "best.pth", model, config, epoch, metrics)
+            save_checkpoint(run_dir / "best.pth", model, config, epoch, metrics, extra={"history": tracker.history})
             if args.stage:
                 shutil.copyfile(run_dir / "best.pth", run_dir / f"{args.stage}_best.pth")
             logger.info("Yeni en iyi model (val/%s=%.4f) → %s", args.monitor, monitored, run_dir / "best.pth")

@@ -3,7 +3,7 @@ Tek belge için sahtecilik çıkarımı ve 3 panelli görselleştirme.
 
 Çalıştırma:
     python predict.py
-    python predict.py --mode resize --image belge.jpg --checkpoint checkpoints/finetuned_multilingual.pth
+    python predict.py --mode resize --image belge.jpg --checkpoint checkpoints/finetuned_multilingual_stageB.pth
     python predict.py --image sahte.png --gt-mask maske.png --gradcam   # + hata haritası ve Grad-CAM
 
 Akış:
@@ -20,11 +20,21 @@ Akış:
   5. (opsiyonel) ``--gt-mask`` verilirse TP/FP/FN **hata haritası** (yeşil/kırmızı/mavi), ``--gradcam``
      ile sınıflandırma kafası için **Grad-CAM** paneli eklenir (bkz. ``src/explain.py``).
 
-Kalibrasyon: önce checkpoint'in kendi klasöründeki ``calibration.json`` (ör. varsayılan Stage E için
-``checkpoints/stageE/calibration.json``, ``evaluate.py`` tarafından yazılır), sonra
-``checkpoints/calibration.json`` → ``checkpoints/synthetic/calibration.json`` aranır; hiçbiri yoksa
-varsayılan değerlerle ``checkpoints/calibration.json`` oluşturulur. ``--calibration`` ile açıkça
-verilebilir. Anahtarlar: ``temperature`` ve ``optimal_threshold`` (ya da ``threshold``).
+Kalibrasyon: önce checkpoint'e özel dosya (``best.pth`` / ``last.pth`` için klasördeki ``calibration.json``,
+ör. ``checkpoints/stageE/calibration.json``; diğer adlar için ``<ad>.calibration.json``; ``evaluate.py``
+tarafından yazılır), sonra checkpoint klasöründeki ``calibration.json`` → ``checkpoints/calibration.json`` →
+``checkpoints/synthetic/calibration.json`` aranır; hiçbiri yoksa varsayılan değerlerle
+``checkpoints/calibration.json`` oluşturulur. ``--calibration`` ile açıkça verilebilir.
+
+Şema (``Calibration``): belge skoru ve piksel haritası **ayrı** kalibre edilir — ``doc_temperature`` /
+``doc_threshold`` belge koşulu, ``pixel_temperature`` / ``pixel_threshold`` bölge koşulu için; ayrıca
+``min_region_fraction``, ``target_fpr``, ``val_fpr``, ``val_tpr``, ``val_images``, ``checkpoint``. Eski şema
+(tek ``temperature`` ve ``optimal_threshold`` / ``threshold``) okunmaya devam eder: iki taraf da aynı T ve
+eşiği alır (eski davranış).
+
+Bir dosya yalnızca ``evaluate.py``'nin val kümesinde yazdığı ``val_images`` alanını taşıyorsa "kalibre"
+sayılır; genel ``checkpoints/calibration.json`` (T=1, eşik 0.60, elle girilmiş) bu yüzden **kalibre
+edilmemiş** olarak işaretlenir (``Calibration.calibrated``).
 """
 
 from __future__ import annotations
@@ -32,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -73,7 +84,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--calibration", default=None,
                    help="Kalibrasyon JSON yolu (verilmezse otomatik aranır / oluşturulur)")
     p.add_argument("--threshold", type=float, default=None,
-                   help="Piksel eşiği (verilirse kalibrasyon dosyasındakini ezer)")
+                   help="Belge eşiği (verilirse kalibrasyon dosyasındakini ezer)")
+    p.add_argument("--pixel-threshold", type=float, default=None,
+                   help="Piksel (bölge) eşiği (verilirse kalibrasyon dosyasındakini ezer)")
     p.add_argument("--gt-mask", default=None,
                    help="Gerçek sahtecilik maskesi (varsa TP/FP/FN hata haritası paneli eklenir)")
     p.add_argument("--gradcam", action="store_true",
@@ -105,23 +118,100 @@ def resolve_image_path(path: str | Path | None) -> Path:
     raise FileNotFoundError(f"Görsel bulunamadı: {path}")
 
 
-def load_calibration(explicit: str | None = None, checkpoint: str | Path | None = None
-                     ) -> tuple[float, float, Path]:
-    """Sıcaklık ve optimal eşiği okur; dosya yoksa varsayılanlarla oluşturur.
+@dataclass
+class Calibration:
+    """Belge skoru ve piksel haritası için ayrı kalibrasyon + karar eşikleri (bkz. modül açıklaması)."""
 
-    ``checkpoint`` verilirse önce onun klasöründeki ``calibration.json`` aranır (``evaluate.py``
-    eşiği her modelin kendi val kümesinde seçip oraya yazar); yoksa genel dosyalara düşülür.
+    doc_temperature: float = 1.0
+    doc_threshold: float = 0.5
+    pixel_temperature: float = 1.0
+    pixel_threshold: float = 0.5
+    min_region_fraction: float = MIN_REGION_FRACTION
+    target_fpr: Optional[float] = None
+    val_fpr: Optional[float] = None
+    val_tpr: Optional[float] = None
+    val_images: Optional[int] = None
+    checkpoint: Optional[str] = None
+    #: Okunan dosya (dosyaya yazılmaz).
+    path: Optional[Path] = field(default=None, compare=False)
+    #: Eski tek-T şemasından mı okundu (dosyaya yazılmaz).
+    legacy: bool = field(default=False, compare=False)
 
-    Returns:
-        (temperature, threshold, okunan dosya)
+    @property
+    def calibrated(self) -> bool:
+        """Val kümesinde ``evaluate.py`` ile öğrenilmiş mi? (Elle girilmiş genel dosya → False.)"""
+        return self.val_images is not None and int(self.val_images) > 0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], path: Optional[Path] = None) -> "Calibration":
+        """Yeni ya da eski (``temperature`` + ``optimal_threshold``) şemadan okur."""
+        def num(key: str, default: Optional[float]) -> Optional[float]:
+            value = data.get(key, default)
+            return None if value is None else float(value)
+
+        legacy = "doc_temperature" not in data
+        if legacy:
+            temperature = num("temperature", DEFAULT_CALIBRATION["temperature"])
+            threshold = num("optimal_threshold", data.get("threshold", DEFAULT_CALIBRATION["optimal_threshold"]))
+            doc_t, doc_thr, pix_t, pix_thr = temperature, threshold, temperature, threshold
+        else:
+            doc_t, doc_thr = num("doc_temperature", 1.0), num("doc_threshold", 0.5)
+            pix_t, pix_thr = num("pixel_temperature", 1.0), num("pixel_threshold", doc_thr)
+        for name, t in (("belge", doc_t), ("piksel", pix_t)):
+            if t <= 0:
+                raise ValueError(f"Geçersiz {name} sıcaklığı ({t}): {path}")
+        images = data.get("val_images")
+        return cls(doc_temperature=doc_t, doc_threshold=doc_thr, pixel_temperature=pix_t, pixel_threshold=pix_thr,
+                   min_region_fraction=num("min_region_fraction", MIN_REGION_FRACTION),
+                   target_fpr=num("target_fpr", None), val_fpr=num("val_fpr", None), val_tpr=num("val_tpr", None),
+                   val_images=None if images is None else int(images), checkpoint=data.get("checkpoint"),
+                   path=path, legacy=legacy)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Yeni şema + eski okuyucular için ``temperature`` / ``optimal_threshold`` (= belge tarafı)."""
+        out = {k: v for k, v in asdict(self).items() if k not in ("path", "legacy")}
+        out.update(temperature=self.doc_temperature, optimal_threshold=self.doc_threshold)
+        return out
+
+    def summary(self) -> str:
+        text = (f"belge T={self.doc_temperature:.3f} / eşik {self.doc_threshold:.2f} · "
+                f"piksel T={self.pixel_temperature:.3f} / eşik {self.pixel_threshold:.2f}")
+        return text + ("" if self.calibrated else " · kalibre edilmemiş")
+
+
+def calibration_path_for(checkpoint: str | Path) -> Path:
+    """``evaluate.py``'nin bir checkpoint için kalibrasyonu yazdığı yol.
+
+    ``best.pth`` / ``last.pth`` → klasördeki ``calibration.json`` (her çalışma kendi klasöründe); diğer
+    adlar (ör. ``checkpoints/finetuned_multilingual_stageB.pth``) → ``<ad>.calibration.json``. Böylece
+    ``checkpoints/`` kökündeki modeller genel ``checkpoints/calibration.json``'ı ezmez.
+    """
+    checkpoint = Path(checkpoint)
+    if checkpoint.stem in ("best", "last"):
+        return checkpoint.parent / "calibration.json"
+    return checkpoint.with_name(f"{checkpoint.stem}.calibration.json")
+
+
+def find_calibration_file(checkpoint: str | Path | None = None) -> Optional[Path]:
+    """``load_calibration_info``'nun okuyacağı dosya (yoksa None; hiçbir dosya oluşturmaz)."""
+    own: tuple[Path, ...] = ()
+    if checkpoint:
+        own = tuple(dict.fromkeys((calibration_path_for(checkpoint), Path(checkpoint).parent / "calibration.json")))
+    return next((p for p in own + CALIBRATION_PATHS if p.exists()), None)
+
+
+def load_calibration_info(explicit: str | None = None, checkpoint: str | Path | None = None) -> Calibration:
+    """Kalibrasyonu ``Calibration`` olarak okur; dosya yoksa varsayılanlarla oluşturur.
+
+    Arama sırası: ``explicit`` → ``calibration_path_for(checkpoint)`` → checkpoint klasöründeki
+    ``calibration.json`` → ``CALIBRATION_PATHS`` (``find_calibration_file``).
     """
     if explicit:
         path = Path(explicit)
         if not path.exists():
             raise FileNotFoundError(f"Kalibrasyon dosyası bulunamadı: {path}")
     else:
-        own = (Path(checkpoint).parent / "calibration.json",) if checkpoint else ()
-        path = next((p for p in own + CALIBRATION_PATHS if p.exists()), None)
+        path = find_calibration_file(checkpoint)
         if path is None:
             path = CALIBRATION_PATHS[0]
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,11 +219,17 @@ def load_calibration(explicit: str | None = None, checkpoint: str | Path | None 
             logger.warning("Kalibrasyon dosyası bulunamadı; nötr varsayılanlarla (T=1, eşik=0.5) oluşturuldu: %s. "
                            "Modelin kendi kalibrasyonu için: python evaluate.py --checkpoint ... --splits ...", path)
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    temperature = float(data.get("temperature", DEFAULT_CALIBRATION["temperature"]))
-    threshold = float(data.get("optimal_threshold", data.get("threshold", DEFAULT_CALIBRATION["optimal_threshold"])))
-    if temperature <= 0:
-        raise ValueError(f"Geçersiz sıcaklık değeri ({temperature}): {path}")
-    return temperature, threshold, path
+    return Calibration.from_dict(data, path)
+
+
+def load_calibration(explicit: str | None = None, checkpoint: str | Path | None = None
+                     ) -> tuple[float, float, Path]:
+    """Geriye dönük uyumluluk: (belge sıcaklığı, belge eşiği, okunan dosya).
+
+    Piksel tarafının ayrı değerleri için ``load_calibration_info`` kullanın.
+    """
+    cal = load_calibration_info(explicit, checkpoint)
+    return cal.doc_temperature, cal.doc_threshold, cal.path
 
 
 def to_tensor(image: np.ndarray) -> torch.Tensor:
@@ -147,12 +243,16 @@ def to_tensor(image: np.ndarray) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 
 def predict(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, Any], temperature: float,
-            device: str, mode: str = "sliding") -> tuple[np.ndarray, float]:
+            device: str, mode: str = "sliding", pixel_temperature: Optional[float] = None) -> tuple[np.ndarray, float]:
     """
+    ``temperature`` belge logit'ine, ``pixel_temperature`` (verilmezse ``temperature``; eski tek-T
+    davranışı) piksel logit'lerine uygulanır.
+
     Returns:
         (orijinal boyutta kalibre olasılık haritası float32 [0,1], kalibre belge olasılığı)
     """
-    prob_map, doc_logit = predict_raw(model, image, config, temperature, device, mode)
+    pixel_t = temperature if pixel_temperature is None else pixel_temperature
+    prob_map, doc_logit = predict_raw(model, image, config, pixel_t, device, mode)
     return prob_map, float(torch.sigmoid(torch.tensor(doc_logit / temperature)))
 
 
@@ -160,7 +260,8 @@ def predict(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, A
 def predict_raw(model: DualStreamForensicNet, image: np.ndarray, config: dict[str, Any], temperature: float,
                 device: str, mode: str = "sliding") -> tuple[np.ndarray, float]:
     """``predict`` ile aynı; belge skorunu kalibre edilmemiş ham logit olarak döndürür
-    (değerlendirmede farklı sıcaklıkların karşılaştırılabilmesi için).
+    (değerlendirmede farklı sıcaklıkların karşılaştırılabilmesi için). ``temperature`` yalnızca piksel
+    haritasına uygulanır (piksel sıcaklığı).
 
     Returns:
         (orijinal boyutta kalibre olasılık haritası float32 [0,1], ham belge logit'i)
@@ -208,30 +309,78 @@ def largest_region_fraction(prob_map: np.ndarray, threshold: float) -> float:
     return float(stats[1:, cv2.CC_STAT_AREA].max()) / prob_map.size if num_labels > 1 else 0.0
 
 
-def decide_forged(doc_prob: float, max_pixel: float, region_fraction: float, threshold: float) -> bool:
+def decide_forged(doc_prob: float, max_pixel: float, region_fraction: float, threshold: float,
+                  min_region_fraction: float = MIN_REGION_FRACTION) -> bool:
     """``is_forged`` kuralı, önceden hesaplanmış özetlerle (eşik taraması için; bkz. ``evaluate.py``).
 
-    ``region_fraction`` = ``largest_region_fraction(prob_map, threshold)``.
+    ``threshold`` belge eşiğidir; ``region_fraction`` = ``largest_region_fraction(prob_map, piksel eşiği)``
+    ve ``max_pixel`` piksel sıcaklığıyla kalibre haritanın maksimumudur.
     """
     hybrid_condition = doc_prob >= threshold and max_pixel >= CLEAN_PIXEL_LIMIT
-    pixel_condition = region_fraction >= MIN_REGION_FRACTION
+    pixel_condition = region_fraction >= min_region_fraction
     return hybrid_condition or pixel_condition
 
 
-def is_forged(doc_prob: float, prob_map: np.ndarray, threshold: float) -> bool:
+def is_forged(doc_prob: float, prob_map: np.ndarray, threshold: float, pixel_threshold: Optional[float] = None,
+              min_region_fraction: float = MIN_REGION_FRACTION) -> bool:
     """
     Sahtecilik kararı — iki koşuldan biri yeterlidir:
 
-    * **Hibrit:** belge skoru eşiği geçer VE piksel haritasında en az hafif bir iz vardır
-      (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen temizken
-      yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
-    * **Piksel:** eşiği geçen bağlantılı bir bölgenin alanı sayfanın en az ``MIN_REGION_FRACTION``
-      kadarıdır (belge skoru düşük kalsa bile). Dijital belgelerdeki kenar yumuşatma (anti-aliasing)
-      kaynaklı tekil piksellerin yanlış alarm üretmesi böylece engellenir.
+    * **Hibrit:** belge skoru belge eşiğini (``threshold`` = ``doc_threshold``) geçer VE piksel haritasında
+      en az hafif bir iz vardır (maks. piksel olasılığı ≥ ``CLEAN_PIXEL_LIMIT``). Piksel haritası tamamen
+      temizken yalnızca sınıflandırma kafasına dayanan yanlış alarmlar böylece engellenir.
+    * **Piksel:** piksel eşiğini (``pixel_threshold``; verilmezse ``threshold`` — eski tek eşik davranışı)
+      geçen bağlantılı bir bölgenin alanı sayfanın en az ``min_region_fraction`` kadarıdır (belge skoru
+      düşük kalsa bile). Dijital belgelerdeki kenar yumuşatma (anti-aliasing) kaynaklı tekil piksellerin
+      yanlış alarm üretmesi böylece engellenir.
 
-    Eşik, ``evaluate.py`` tarafından val kümesinde hedef yanlış alarm oranına göre seçilir.
+    Eşikler, ``evaluate.py`` tarafından val kümesinde hedef yanlış alarm oranına göre birlikte seçilir.
     """
-    return decide_forged(doc_prob, float(prob_map.max()), largest_region_fraction(prob_map, threshold), threshold)
+    pixel_threshold = threshold if pixel_threshold is None else pixel_threshold
+    return decide_forged(doc_prob, float(prob_map.max()), largest_region_fraction(prob_map, pixel_threshold),
+                         threshold, min_region_fraction)
+
+
+def decide_with(cal: Calibration, doc_prob: float, prob_map: np.ndarray) -> bool:
+    """``is_forged``; eşikler ``Calibration``'dan (belge koşulu ``doc_threshold``, bölge ``pixel_threshold``)."""
+    return is_forged(doc_prob, prob_map, cal.doc_threshold, cal.pixel_threshold, cal.min_region_fraction)
+
+
+def select_operating_point(doc_probs: np.ndarray, max_pixel: np.ndarray, regions: np.ndarray, labels: np.ndarray,
+                           doc_thresholds: np.ndarray, target_fpr: float,
+                           min_region_fraction: float = MIN_REGION_FRACTION) -> dict[str, Any]:
+    """(belge eşiği, piksel eşiği) çiftini birlikte seçer: FPR ≤ ``target_fpr`` koşulunda TPR en büyük.
+
+    Args:
+        doc_probs: (N,) kalibre (``fuse_doc_score`` uygulanmış) belge olasılıkları.
+        max_pixel: (N,) piksel sıcaklığıyla kalibre haritaların maksimumu.
+        regions: (N, P) her aday piksel eşiğinde en büyük bağlantılı bölge oranı.
+        doc_thresholds: (D,) aday belge eşikleri.
+    Returns:
+        ``doc_index``, ``pixel_index``, ``fpr``, ``tpr``, ``feasible`` (hedef tutturuldu mu).
+
+    Eşitlikte önce düşük FPR, sonra **yüksek** eşikler (daha muhafazakâr çalışma noktası) seçilir. Hiçbir
+    çift hedefi tutturamazsa FPR'si en düşük (onların içinde TPR'si en yüksek) çift döner.
+    """
+    labels = np.asarray(labels).astype(bool)
+    doc_ok = ((np.asarray(doc_probs, float)[None, :] >= np.asarray(doc_thresholds, float)[:, None])
+              & (np.asarray(max_pixel, float)[None, :] >= CLEAN_PIXEL_LIMIT))           # (D, N)
+    pixel_ok = np.asarray(regions, float).T >= min_region_fraction                       # (P, N)
+    decided = doc_ok[:, None, :] | pixel_ok[None, :, :]                                  # (D, P, N)
+    shape = decided.shape[:2]
+    fpr = decided[..., ~labels].mean(axis=-1) if (~labels).any() else np.zeros(shape)
+    tpr = decided[..., labels].mean(axis=-1) if labels.any() else np.zeros(shape)
+    d_idx, p_idx = (a.ravel() for a in np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij"))
+    fpr, tpr = fpr.ravel(), tpr.ravel()
+    feasible = fpr <= target_fpr + 1e-12
+    if feasible.any():
+        # np.lexsort: son anahtar birincil → TPR (büyük), FPR (küçük), belge eşiği (büyük), piksel eşiği (büyük)
+        cand = np.flatnonzero(feasible)
+        k = cand[np.lexsort((-p_idx[cand], -d_idx[cand], fpr[cand], -tpr[cand]))[0]]
+    else:
+        k = np.lexsort((-p_idx, -d_idx, -tpr, fpr))[0]
+    return {"doc_index": int(d_idx[k]), "pixel_index": int(p_idx[k]), "fpr": float(fpr[k]), "tpr": float(tpr[k]),
+            "feasible": bool(feasible.any())}
 
 
 def make_overlay(image: np.ndarray, mask_resized: np.ndarray) -> np.ndarray:
@@ -293,14 +442,19 @@ def main() -> None:
     logger.info("Model yüklendi: %s (epoch=%s, val/score=%.4f)", checkpoint, config.get("epoch"),
                 config.get("metrics", {}).get("val/score", float("nan")))
 
-    temperature, threshold, calib_path = load_calibration(args.calibration, checkpoint)
+    cal = load_calibration_info(args.calibration, checkpoint)
     if args.threshold is not None:
-        threshold = args.threshold
-    logger.info("Kalibrasyon: T=%.3f, eşik=%.2f (%s)", temperature, threshold, calib_path)
+        cal.doc_threshold = args.threshold
+    if args.pixel_threshold is not None:
+        cal.pixel_threshold = args.pixel_threshold
+    # Görselleştirme (kontur, hata haritası, alan) piksel eşiğiyle yapılır.
+    temperature, threshold = cal.doc_temperature, cal.pixel_threshold
+    logger.info("Kalibrasyon: %s (%s)", cal.summary(), cal.path)
 
     image = read_image_rgb(image_path)
     logger.info("Görsel: %s (%dx%d), mod=%s", image_path, image.shape[1], image.shape[0], args.mode)
-    mask_resized, raw_doc_prob = predict(model, image, config, temperature, args.device, args.mode)
+    mask_resized, raw_doc_prob = predict(model, image, config, temperature, args.device, args.mode,
+                                         pixel_temperature=cal.pixel_temperature)
     doc_prob = fuse_doc_score(raw_doc_prob, float(mask_resized.max()))
     if doc_prob != raw_doc_prob:
         logger.info("Piksel haritası temiz (maks < %.2f): belge skoru %.4f → %.4f", CLEAN_PIXEL_LIMIT,
@@ -323,8 +477,8 @@ def main() -> None:
     save_figure(image, mask_resized, overlay, doc_prob, threshold, out_path, extra)
     logger.info("Belge olasılığı=%.4f, maks piksel=%.4f, eşik üstü alan=%.2f%%",
                 doc_prob, mask_resized.max(), (mask_resized >= threshold).mean() * 100)
-    logger.info("Karar (eşik=%.2f): %s", threshold,
-                "SAHTE" if is_forged(doc_prob, mask_resized, threshold) else "ORİJİNAL")
+    logger.info("Karar (belge eşiği=%.2f, piksel eşiği=%.2f): %s", cal.doc_threshold, cal.pixel_threshold,
+                "SAHTE" if decide_with(cal, doc_prob, mask_resized) else "ORİJİNAL")
     logger.info("Sonuç kaydedildi: %s", out_path.resolve())
 
 

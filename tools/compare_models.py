@@ -12,16 +12,25 @@ Kullanım:
 
 Aynı test protokolüyle (aynı ``splits`` dosyası) üretilmemiş özetler karşılaştırılmamalıdır; betik
 kümelerin görüntü sayıları (``n_images``) farklıysa uyarır.
+
+Her satırda modelin kalibrasyon durumu yazılır (``kalibrasyon`` sütunu): ``summary.json`` → ``calibrated``
+(``evaluate.py`` yeni sürüm) ya da checkpoint'in kalibrasyon dosyasından (``src/model_registry.py``). Val'de
+öğrenilmemiş kalibrasyonla ölçülen modeller **"kalibre edilmemiş"** olarak işaretlenir; karar metrikleri
+(TPR/FPR/F1) bu modellerde doğrulanmış bir çalışma noktasına dayanmaz.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.model_registry import UNCALIBRATED_LABEL, calibration_label  # noqa: E402
 
 DEFAULT_METRICS = ["image_auc", "image_tpr_at_fpr02", "decision_tpr", "decision_fpr", "decision_f1",
                    "pixel_f1", "pixel_iou", "pixel_precision", "pixel_recall"]
@@ -47,8 +56,16 @@ def main() -> None:
     for spec in args.run:
         name, folder = spec.split("=", 1)
         summary = json.loads((Path(folder) / "summary.json").read_text(encoding="utf-8"))
+        if "calibrated" in summary:
+            status = "kalibre" if summary["calibrated"] else UNCALIBRATED_LABEL
+        else:
+            status = calibration_label(summary.get("checkpoint"))
         for key, metrics in summary["results"].items():
-            records.append({"model": name, "kume": key, **metrics})
+            records.append({"model": name, "kume": key, "kalibrasyon": status,
+                            "belge_T": summary.get("doc_temperature", summary.get("temperature")),
+                            "belge_esik": summary.get("doc_threshold", summary.get("threshold")),
+                            "piksel_T": summary.get("pixel_temperature", summary.get("temperature")),
+                            "piksel_esik": summary.get("pixel_threshold", summary.get("threshold")), **metrics})
     table = pd.DataFrame(records)
     sizes = table.groupby("kume")["n_images"].nunique()
     for key in sizes[sizes > 1].index:
@@ -61,12 +78,17 @@ def main() -> None:
     lines = []
     for key, group in table.groupby("kume", sort=False):
         lines += [f"### {key} (n = {int(group['n_images'].iloc[0])})", "",
-                  "| Model | " + " | ".join(args.metrics) + " |",
-                  "|---|" + "---|" * len(args.metrics)]
+                  "| Model | Kalibrasyon | " + " | ".join(args.metrics) + " |",
+                  "|---|---|" + "---|" * len(args.metrics)]
         for _, row in group.iterrows():
             cells = [fmt(row.get(m, np.nan), row.get(f"{m}_ci_lo", np.nan), row.get(f"{m}_ci_hi", np.nan))
                      for m in args.metrics]
-            lines.append(f"| {row['model']} | " + " | ".join(cells) + " |")
+            lines.append(f"| {row['model']} | {row['kalibrasyon']} | " + " | ".join(cells) + " |")
+        lines.append("")
+    if (table["kalibrasyon"] == UNCALIBRATED_LABEL).any():
+        lines.append(f"\"{UNCALIBRATED_LABEL}\": kalibrasyon val kümesinde öğrenilmemiş (genel/elle girilmiş T ve eşik); "
+                     "karar metrikleri (TPR/FPR/F1) doğrulanmış bir çalışma noktasına dayanmaz. Eşikten bağımsız "
+                     "metrikler (AUC, TPR@FPR) karşılaştırılabilir.")
         lines.append("")
     out.with_suffix(".md").write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines))
