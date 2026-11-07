@@ -21,7 +21,6 @@ short_description: Türkçe dijital dekont ve e-Arşiv faturalarında sahtecilik
 Kapsam dışı belgelerde model çalışır ancak sonuçlar doğrulanmamıştır (bkz. [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md):
 test edilmemiş koşullar ve bilinen kör noktalar).
 
-> **🌐 Canlı demo:** _yakında_ — `https://huggingface.co/spaces/<kullanici>/document-forensics` <!-- Space yayınlanınca bu satırı güncelleyin -->
 >
 > Teknik rapor: [`docs/TECHNICAL_DOCUMENTATION.md`](docs/TECHNICAL_DOCUMENTATION.md) · Model kartı:
 > [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md)
