@@ -271,23 +271,20 @@ def sidebar() -> dict:
                    if file_cal.calibrated and file_cal.val_fpr is not None else UNCALIBRATED_LABEL)
             st.caption(f"Salt okunur · `{source}`" + (" · eski tek-T şema" if file_cal.legacy else "") + f" · {val}")
 
-        st.subheader("📑 İçerik analizi")
-        ocr_ok, gpu_ok = easyocr_available(), cuda_available()
-        use_ocr = st.toggle("OCR + kural motoru", value=False, disabled=not ocr_ok,
-                            help="IBAN, TCKN ve Matrah/KDV/Toplam tutarlılığını denetler (yavaş)."
-                            if ocr_ok else "EasyOCR kurulu değil (`pip install easyocr`); OCR devre dışı.")
-        ocr_gpu = st.toggle("OCR için GPU", value=gpu_ok, disabled=not gpu_ok or not use_ocr,
-                            help=None if gpu_ok else "CUDA bulunamadı; OCR CPU'da çalışır.")
-        use_copymove = st.toggle("Kopyala-taşı kanıtı (deneysel)", value=False,
-                                 help="Belge içinde birebir aynı glif bloklarını arar (src/copymove.py). Yalnızca "
-                                      "gürültülü (taranmış/fotoğraf/JPEG) zeminde kanıt üretir; düz dijital zeminde "
-                                      "doğal tekrarla ayırt edilemediği için 'kanıt yok' der. Hibrit skora katılır.")
-
-        st.subheader("🧠 Açıklanabilirlik")
-        use_cam = st.toggle("Grad-CAM (belge skoru)", value=False, disabled=not models,
-                            help="Sınıflandırma kafasının kararını en çok etkileyen bölgeler. Harita temizken "
-                                 "belge skoru yüksekse yanlış alarmın kaynağını gösterir (CPU'da yavaş).")
-    return {"ckpt": ckpt, "mode": mode, "cal": cal, "dev_mode": dev_mode, "use_ocr": use_ocr, "ocr_gpu": ocr_gpu,
+        # OCR ve Grad-CAM her analizde çalışır; OCR, CUDA varsa GPU'yu kendiliğinden kullanır.
+        ocr_ok = easyocr_available()
+        use_ocr, use_cam, use_copymove = ocr_ok, bool(models), False
+        if not ocr_ok:
+            st.warning("EasyOCR kurulu değil (`pip install easyocr`); içerik kuralları çalışmayacak.")
+        if dev_mode:
+            st.subheader("🧩 Analiz katmanları")
+            use_ocr = st.toggle("OCR + kural motoru", value=ocr_ok, disabled=not ocr_ok)
+            use_cam = st.toggle("Grad-CAM (belge skoru)", value=bool(models), disabled=not models,
+                                help="CPU'da analizi uzatır; hızlı denemelerde kapatılabilir.")
+            use_copymove = st.toggle("Kopyala-taşı kanıtı (deneysel)", value=False,
+                                     help="Belge içinde birebir aynı glif bloklarını arar. Doğrulanmış bir çalışma "
+                                          "noktası yoktur; düz dijital zeminde kanıt üretmez. Hibrit skora katılır.")
+    return {"ckpt": ckpt, "mode": mode, "cal": cal, "dev_mode": dev_mode, "use_ocr": use_ocr,
             "use_cam": use_cam, "use_copymove": use_copymove}
 
 
@@ -324,7 +321,7 @@ def run_analysis(image: np.ndarray, settings: dict, pdf_data: Optional[bytes] = 
     if settings["use_ocr"]:
         try:
             with st.spinner("OCR ve kural motoru çalışıyor (ilk çalıştırmada model indirilir)..."):
-                result["lines"] = run_ocr(image, gpu=settings["ocr_gpu"] and cuda_available())
+                result["lines"] = run_ocr(image, gpu=cuda_available())
                 result["report"] = check_document_text(result["lines"])
         except Exception as exc:  # EasyOCR modeli indirilemedi / kurulu değil
             result["errors"].append(f"OCR çalıştırılamadı: {exc.__class__.__name__}: {exc}")
@@ -358,9 +355,10 @@ def show_visual(image: np.ndarray, result: dict, cal: Calibration) -> None:
     m3.metric("Sahte/Manipüle Edilmiş Alan", f"%{area:.2f}")
 
     if decide_with(cal, doc_prob, prob_map):
-        st.error("⚠️ Belgede manipülasyon/sahtecilik tespiti yapıldı!")
+        st.error("⚠️ Görüntü analizi: belgede manipülasyon/sahtecilik izi bulundu.")
     else:
-        st.success("✅ Belgede belirgin bir sahtecilik izine rastlanmadı.")
+        st.success("✅ Görüntü analizi: belirgin bir düzenleme izine rastlanmadı. (Baştan sona sahte üretilmiş "
+                   "belgelerde piksel izi olmayabilir; içerik ve PDF kontrollerine de bakın.)")
         if doc_prob >= cal.doc_threshold and max_pixel < CLEAN_PIXEL_LIMIT:
             st.info("ℹ️ Belge skoru sınırda/yüksek olsa da piksel seviyesinde sahte bölge izine rastlanmadı.")
 
@@ -378,7 +376,7 @@ def show_explain(image: np.ndarray, result: dict, threshold: float) -> None:
             cols[0].image(cam_overlay(image, result["cam"]), use_container_width=True,
                           caption="Grad-CAM: belge skorunu en çok etkileyen bölgeler (kırmızı = yüksek etki)")
         else:
-            cols[0].info("Grad-CAM için kenar çubuğundan **Grad-CAM** anahtarını açıp yeniden analiz edin.")
+            cols[0].info("Bu analizde Grad-CAM üretilmedi.")
         if gt_upload is not None:
             gt = cv2.imdecode(np.frombuffer(gt_upload.getvalue(), np.uint8), cv2.IMREAD_GRAYSCALE)
             gt = cv2.resize(gt, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST) > 127
@@ -522,7 +520,7 @@ def main() -> None:
     st.set_page_config(page_title="Document Forensics", page_icon="🔍", layout="wide")
     st.title("🔍 Document Forensics - Sahtecilik ve Manipülasyon Tespit Sistemi")
     st.caption("Dekont · Fatura · Fiş — RGB + SRM gürültü akışlı derin öğrenme modeli, "
-               "kalibre olasılıklar ve opsiyonel OCR içerik tutarlılığı")
+               "kalibre olasılıklar ve OCR içerik tutarlılığı")
 
     settings = sidebar()
     tab_analysis, tab_metrics = st.tabs(["🔎 Belge Analizi", "📊 Model Başarımı ve Metrik Analizi"])

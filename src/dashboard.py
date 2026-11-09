@@ -40,7 +40,7 @@ import streamlit as st
 
 from predict import CLEAN_PIXEL_LIMIT, DOC_WEIGHT, MIN_REGION_FRACTION, Calibration
 from src.metrics import expected_calibration_error, fit_temperature, roc_auc, sigmoid
-from src.model_registry import EXPERIMENTAL, KNOWN_MODELS, calibration_label, describe
+from src.model_registry import EXPERIMENTAL, KNOWN_MODELS, RECOMMENDED, calibration_label, describe
 
 # plotly express, tek bir ``color`` sütunuyla gruplarken pandas'ın ``get_group`` çağrısını uzunluk-1 listeyle
 # yapıyor (pandas ≥ 2.2 FutureWarning). Uyarı bu modüldeki kodu değil plotly'nin iç kodunu ilgilendirir.
@@ -159,14 +159,30 @@ def _model_label(ckpt: Optional[str]) -> str:
     return describe(ckpt).label if ckpt else "model bilgisi yok (eski çıktı)"
 
 
-def pick_result_dir(kind: str, selected_ckpt: Optional[str], title: str) -> Optional[Path]:
-    """Seçili modelin sonuç klasörünü seçer; yoksa kullanıcıya mevcut klasörlerden seçtirir ve uyarır."""
+def _has_test_results(directory: str) -> bool:
+    """Klasörün özeti test kümesi içeriyor mu? (yalnızca OOD denemeleri varsayılan olarak açılmasın)"""
+    try:
+        return pd.read_csv(Path(directory) / "summary.csv", index_col=0).index.astype(str).str.startswith("test/").any()
+    except (OSError, ValueError):
+        return False
+
+
+def pick_result_dir(kind: str, selected_ckpt: Optional[str], title: str, dev_mode: bool = False) -> Optional[Path]:
+    """Seçili modelin sonuç klasörünü seçer (test sonucu içeren, en yeni olan önce).
+
+    Geliştirici modu kapalıyken yalnızca seçili modele ait klasörler listelenir; eski ve deneysel modellerin
+    sonuçları gösterilmez. Geliştirici modunda diğer klasörler de seçilebilir ve uyarıyla gösterilir.
+    """
     dirs = find_result_dirs(kind, max((_mtime(p) for p in RESULTS_ROOT.rglob("*.json")), default=0.0))
-    if not dirs:
-        return None
     selected = Path(selected_ckpt).as_posix() if selected_ckpt else None
     matching = [d for d, c in dirs.items() if c == selected]
-    options = matching + [d for d in dirs if d not in matching]
+    if kind == "evaluate":
+        matching.sort(key=lambda d: (_has_test_results(d), _mtime(Path(d) / "summary.json")), reverse=True)
+    else:
+        matching.sort(key=lambda d: _mtime(Path(d) / "meta.json"), reverse=True)
+    options = matching + ([d for d in dirs if d not in matching] if dev_mode else [])
+    if not options:
+        return None
     choice = st.selectbox(f"{title} — sonuç klasörü", options,
                           format_func=lambda d: f"{d}  ·  {_model_label(dirs[d])}", key=f"dir_{kind}")
     ckpt = dirs[choice]
@@ -512,7 +528,8 @@ def section_matrices(df: pd.DataFrame, res: dict, sel: np.ndarray, cal: Calibrat
             st.info("7 · OCR karmaşıklık matrisi için değerlendirmeyi OCR ile çalıştırın: `python benchmark.py --ocr`")
 
 
-def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> None:
+def section_robustness(res: dict, sel_paths: set[str], temperature: float, selected_ckpt: Optional[str] = None,
+                       dev_mode: bool = False) -> None:
     st.markdown("### C. Dayanıklılık ve Eğitim Dinamikleri")
     c1, c2 = st.columns(2)
 
@@ -552,6 +569,9 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
 
     # 9–10. Eğitim geçmişi ------------------------------------------------------------------
     histories = find_histories()
+    if not dev_mode:  # Yalnızca seçili modelin (geçmişi gerçekten bulunan) eğitimi
+        folder = Path(selected_ckpt).parent if selected_ckpt else None
+        histories = [p for p in histories if p.parent == folder and load_history_cached(str(p), _mtime(p)) is not None]
     with c2:
         if histories:
             path = st.selectbox("Eğitim geçmişi", histories, format_func=lambda p: p.as_posix())
@@ -566,10 +586,8 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
                     _line(fig, hist["epoch"], hist[col], name, color)
             _show(_layout(fig, "9 · Eğitim ve validasyon kaybı", "Epoch", "Kayıp"))
         else:
-            st.info("9–10 · Epoch bazlı eğitim geçmişi bulunamadı. Stage A/B eğitimleri Kaggle'da yapıldığı için "
-                    "epoch günlükleri bu makinede yok; checkpoint yalnızca son epoch metriklerini içerir (aşağıda). "
-                    "`train.py` artık her epoch'u `<run_dir>/history.csv` dosyasına yazıyor — Kaggle çıktısındaki "
-                    "bu dosyayı `runs/<ad>/history.csv` altına koyduğunuzda grafikler otomatik çizilir.")
+            st.info("9–10 · Bu modelin epoch bazlı eğitim geçmişi yok; checkpoint yalnızca son epoch metriklerini "
+                    "içeriyor (aşağıda). Yeni eğitimlerde geçmiş `history.csv` ve `best.pth` içine kaydedilir.")
     if histories:
         cols = [("val/pixel_f1", "Val piksel F1", SERIES[0]), ("val/pixel_iou", "Val piksel IoU", SERIES[1]),
                 ("val/score", "Val skor", SERIES[2])]
@@ -580,14 +598,15 @@ def section_robustness(res: dict, sel_paths: set[str], temperature: float) -> No
         fig.update_yaxes(range=[0, 1])
         _show(_layout(fig, "10 · Epoch bazlı piksel F1 / IoU", "Epoch", "Skor"))
 
-    metrics = load_checkpoint_metrics(tuple(m.path for m in KNOWN_MODELS))
+    shown = [m for m in KNOWN_MODELS if dev_mode or m.status == RECOMMENDED]
+    metrics = load_checkpoint_metrics(tuple(m.path for m in shown))
     if not metrics.empty:
         keep = [r for r in metrics.index if r == "epoch" or r.startswith("val/")]
         st.markdown("**Checkpoint'lerde kayıtlı son epoch validasyon metrikleri** (eğitim sırasındaki val bölümü; "
                     "sütun adları dosya adı değil, dosyanın gerçek içeriğidir — bkz. `src/model_registry.py`)")
         st.dataframe(metrics.loc[keep].astype(float).round(4), use_container_width=True)
         status = pd.DataFrame([{"Model": m.label, "Kalibrasyon": calibration_label(m.path)}
-                               for m in KNOWN_MODELS if Path(m.path).exists()])
+                               for m in shown if Path(m.path).exists()])
         if not status.empty:
             st.dataframe(status, hide_index=True, use_container_width=True)
         st.caption("`val/image_fpr` ham belge skoruyla (T=1, eşik 0.5) ölçülür; uygulamanın kararı ise kalibre "
@@ -691,7 +710,7 @@ def render_dashboard(cal: Calibration, selected_ckpt: Optional[str], dev_mode: b
     """``cal``: seçili modelin (geliştirici modunda ayarlanmış olabilir) kalibrasyonu."""
     threshold, temperature = cal.pixel_threshold, cal.doc_temperature
     st.subheader("🧪 Değerlendirme sonuçları (evaluate.py)")
-    eval_dir = pick_result_dir("evaluate", selected_ckpt, "Değerlendirme")
+    eval_dir = pick_result_dir("evaluate", selected_ckpt, "Değerlendirme", dev_mode)
     if eval_dir is not None:
         ev = load_evaluation(str(eval_dir), max(_mtime(p) for p in [eval_dir / "summary.csv",
                                                                      *eval_dir.glob("breakdown_*.csv")]))
@@ -702,11 +721,11 @@ def render_dashboard(cal: Calibration, selected_ckpt: Optional[str], dev_mode: b
                 f"{selected_ckpt or 'checkpoints/stageE/best.pth'} --splits <splits.csv> --out results/<ad>`")
     st.divider()
     st.subheader("📈 Ayrıntılı analiz (benchmark.py)")
-    bench_dir = pick_result_dir("benchmark", selected_ckpt, "Benchmark")
+    bench_dir = pick_result_dir("benchmark", selected_ckpt, "Benchmark", dev_mode)
     res = load_results(str(bench_dir), _mtime(bench_dir / "meta.json")) if bench_dir else None
     if res is None:
         _no_results(selected_ckpt)
-        section_robustness({"robust": None}, set(), temperature)
+        section_robustness({"robust": None}, set(), temperature, selected_ckpt, dev_mode)
         return
 
     meta = res["meta"]
@@ -752,5 +771,5 @@ def render_dashboard(cal: Calibration, selected_ckpt: Optional[str], dev_mode: b
 
     section_performance(df, res, sel, cal)
     section_matrices(df, res, sel, cal)
-    section_robustness(res, set(df["image_path"]), temperature)
+    section_robustness(res, set(df["image_path"]), temperature, selected_ckpt, dev_mode)
     section_dataset(df, res, sel, threshold)
