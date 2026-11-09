@@ -1,0 +1,3 @@
+boyut,deger,n_orijinal,n_sahte,tespit_orani,yanlis_alarm,auc,ort_belge_olasiligi
+sahtecilik_turu,bilinmiyor,150,150,0.4666666666666667,,0.4746222222222222,0.5235953753814797
+sahtecilik_turu,orig,150,0,,0.4066666666666667,,0.5268526337222379
