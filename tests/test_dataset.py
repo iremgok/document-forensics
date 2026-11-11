@@ -106,3 +106,19 @@ def test_real_forged_v2_used_only_when_complete(tmp_path):
     assert resolve_source_dir(tmp_path, "real_forged").name == "8_real_forged"  # yarım v2 atlanır
     (tmp_path / "8_real_forged_v2" / "metadata.csv").write_text("image\n", encoding="utf-8")
     assert resolve_source_dir(tmp_path, "real_forged").name == "8_real_forged_v2"
+
+
+def test_rerender_augment_keeps_mask_aligned_and_is_noop_when_off():
+    from src.dataset import rerender_augment
+
+    image = np.full((100, 200, 3), 120, np.uint8)
+    mask = np.zeros((100, 200), np.uint8)
+    mask[40:60, 80:120] = 1
+    same_img, same_mask = rerender_augment(image, mask, p=0.0)
+    assert same_img is image and same_mask is mask
+    for _ in range(20):
+        out_img, out_mask = rerender_augment(image, mask, p=1.0)
+        assert out_img.shape[:2] == out_mask.shape and set(np.unique(out_mask)) <= {0, 1}
+        assert out_mask.any()
+        # Maske hâlâ yalnızca gri (120) bölgeyi kaplar; beyaz kenar boşluğuna taşmaz.
+        assert (out_img[out_mask == 1] < 200).all()

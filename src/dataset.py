@@ -689,6 +689,36 @@ def jpeg_compression(quality_low: int = 50, quality_high: int = 100, p: float = 
         return A.ImageCompression(quality_lower=quality_low, quality_upper=quality_high, p=p)
 
 
+def rerender_augment(image: np.ndarray, mask: np.ndarray, p: float = 0.5,
+                     scale_range: tuple[float, float] = (0.6, 1.5), max_margin: float = 0.25
+                     ) -> tuple[np.ndarray, np.ndarray]:
+    """Canva / PDF yeniden render simülasyonu: tüm sayfayı yeniden örnekle + beyaz kenar boşluğu ekle.
+
+    Canva dekontu içe aktarırken sayfayı yeniden rasterlar (farklı DPI → interpolasyon) ve yeni bir
+    sayfaya yerleştirir; bu, hiç sahtecilik olmasa da SRM/gürültü izlerini değiştirir. Model bu izi
+    "sahtecilik" sanmasın diye eğitimde **etiketten bağımsız** (orijinal ve sahte görüntülere aynı
+    olasılıkla) uygulanır. Maske en yakın komşu ile aynı geometriyle dönüştürülür.
+    Kırpmadan **önce** (tam sayfa üzerinde) çağrılmalıdır. ``p`` = 0 → değişmez.
+    """
+    import random
+
+    if p <= 0 or random.random() >= p:
+        return image, mask
+    h, w = image.shape[:2]
+    s = random.uniform(*scale_range)
+    nh, nw = max(8, int(round(h * s))), max(8, int(round(w * s)))
+    interp = random.choice([cv2.INTER_AREA, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_LANCZOS4]) \
+        if s >= 1.0 else cv2.INTER_AREA
+    image = cv2.resize(image, (nw, nh), interpolation=interp)
+    mask = cv2.resize(mask, (nw, nh), interpolation=cv2.INTER_NEAREST)
+    # Yeni sayfaya yerleştirme: beyaz kenar boşluğu (maske 0 kalır).
+    top, bottom, left, right = (int(random.uniform(0, max_margin) * d) for d in (nh, nh, nw, nw))
+    if top or bottom or left or right:
+        image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        mask = cv2.copyMakeBorder(mask, top, bottom, left, right, cv2.BORDER_CONSTANT, value=0)
+    return image, mask
+
+
 class AlignedCrop:
     """JPEG 8x8 blok ızgarasını koruyan kırpma (DCT akışı için) + kalan dönüşümler.
 
@@ -779,10 +809,12 @@ def build_transforms(train: bool, crop_size: int = 512, jpeg_p: float = 0.5,
 class ForgeryDataset(Dataset):
     """Belge sahteciliği veri kümesi."""
 
-    def __init__(self, frame: pd.DataFrame, transform: Callable, max_side: int = 1600) -> None:
+    def __init__(self, frame: pd.DataFrame, transform: Callable, max_side: int = 1600,
+                 rerender_p: float = 0.0) -> None:
         self.frame = frame.reset_index(drop=True)
         self.transform = transform
         self.max_side = max_side
+        self.rerender_p = rerender_p  # yalnızca eğitimde > 0 (bkz. ``rerender_augment``)
 
     def __len__(self) -> int:
         return len(self.frame)
@@ -792,6 +824,8 @@ class ForgeryDataset(Dataset):
         image = read_image_rgb(row["image_path"])
         mask = read_mask(row["mask_path"], image.shape[:2])
         image, mask = limit_long_side(image, mask, self.max_side)
+        if self.rerender_p > 0:
+            image, mask = rerender_augment(image, mask, self.rerender_p)
         out = self.transform(image=image, mask=mask)
         mask_t = torch.as_tensor(out["mask"], dtype=torch.float32).unsqueeze(0)
         return {

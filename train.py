@@ -172,6 +172,9 @@ def parse_args() -> argparse.Namespace:
                         "(stageC: tr)")
     p.add_argument("--jpeg-aug-p", type=float, default=0.5,
                    help="Eğitimde Q∈[50,100] JPEG sıkıştırma artırmasının olasılığı (0 = kapalı)")
+    p.add_argument("--rerender-aug-p", type=float, default=0.0,
+                   help="Canva/PDF yeniden render simülasyonu (sayfa yeniden örnekleme + beyaz kenar) artırmasının "
+                        "olasılığı; orijinal ve sahte görüntülere etiketten bağımsız uygulanır (0 = kapalı)")
     p.add_argument("--crop-nonempty-p", type=float, default=0.5,
                    help="Sahte belgede kırpmanın sahte bölgeyi içerme olasılığı (kalanı rastgele kırpma)")
     p.add_argument("--flip-aug-p", type=float, default=0.0,
@@ -510,7 +513,8 @@ def main() -> None:
                                 flip_p=args.flip_aug_p, align8=align8, jpeg_quality=jpeg_quality)
 
     curriculum = args.jpeg_curriculum > 0 and args.jpeg_aug_p > 0
-    train_ds = ForgeryDataset(train_df, train_transforms((90, 100) if curriculum else (50, 100)), args.max_side)
+    train_ds = ForgeryDataset(train_df, train_transforms((90, 100) if curriculum else (50, 100)), args.max_side,
+                            rerender_p=args.rerender_aug_p)
     if align8:
         logger.info("DCT akışı: eğitim kırpmaları JPEG 8x8 ızgarasına hizalı.")
     val_ds = ForgeryDataset(val_df, build_transforms(False), args.max_side)
