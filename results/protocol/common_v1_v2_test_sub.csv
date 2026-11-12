@@ -1,0 +1,607 @@
+image_path,mask_path,label,group_id,source,lang,doc_type,tamper_type,split
+data/6_synthetic_tr_en_v4/images/syn000013__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000013__00_orig.png,0,synthetic:syn000013,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000013__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000013__01_amount_consistent.png,1,synthetic:syn000013,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000013__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000013__02_amount_consistent.png,1,synthetic:syn000013,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000013__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000013__03_copy_move.png,1,synthetic:syn000013,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000037__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000037__00_orig.png,0,synthetic:syn000037,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000037__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000037__01_copy_move.png,1,synthetic:syn000037,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000037__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000037__02_amount_consistent.png,1,synthetic:syn000037,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000037__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000037__03_text_rewrite.png,1,synthetic:syn000037,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000052__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000052__00_orig.png,0,synthetic:syn000052,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000052__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000052__01_amount_tamper.png,1,synthetic:syn000052,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000052__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000052__02_text_rewrite.png,1,synthetic:syn000052,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000052__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000052__03_inpaint_sim.png,1,synthetic:syn000052,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000058__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000058__00_orig.png,0,synthetic:syn000058,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000058__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000058__01_text_rewrite.png,1,synthetic:syn000058,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000058__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000058__02_inpaint_sim.png,1,synthetic:syn000058,synthetic,en,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000058__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000058__03_inpaint_sim.png,1,synthetic:syn000058,synthetic,en,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000076__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000076__00_orig.png,0,synthetic:syn000076,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000076__01_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000076__01_iban_tamper.png,1,synthetic:syn000076,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000076__02_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn000076__02_amount_consistent.png,1,synthetic:syn000076,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000076__03_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn000076__03_inpaint_sim.png,1,synthetic:syn000076,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000085__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000085__00_orig.png,0,synthetic:syn000085,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000085__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000085__01_amount_consistent.png,1,synthetic:syn000085,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000085__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000085__02_amount_consistent.png,1,synthetic:syn000085,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000085__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000085__03_copy_move.png,1,synthetic:syn000085,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000089__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000089__00_orig.png,0,synthetic:syn000089,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000089__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000089__01_text_rewrite.png,1,synthetic:syn000089,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000089__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000089__02_iban_tamper.png,1,synthetic:syn000089,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000089__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000089__03_amount_tamper.png,1,synthetic:syn000089,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000095__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000095__00_orig.png,0,synthetic:syn000095,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000095__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000095__01_inpaint_sim.png,1,synthetic:syn000095,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000095__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000095__02_inpaint_sim.png,1,synthetic:syn000095,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000095__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000095__03_inpaint_sim.png,1,synthetic:syn000095,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000159__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000159__00_orig.png,0,synthetic:syn000159,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000159__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000159__01_text_rewrite.png,1,synthetic:syn000159,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000159__02_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000159__02_iban_tamper.png,1,synthetic:syn000159,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000159__03_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000159__03_amount_tamper.png,1,synthetic:syn000159,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000162__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000162__00_orig.png,0,synthetic:syn000162,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000162__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000162__01_amount_tamper.png,1,synthetic:syn000162,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000162__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000162__02_amount_tamper.png,1,synthetic:syn000162,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000162__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000162__03_amount_consistent.png,1,synthetic:syn000162,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000190__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000190__00_orig.png,0,synthetic:syn000190,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000190__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000190__01_text_rewrite.png,1,synthetic:syn000190,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000190__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000190__02_text_rewrite.png,1,synthetic:syn000190,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000190__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000190__03_amount_consistent.png,1,synthetic:syn000190,synthetic,en,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000211__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000211__00_orig.png,0,synthetic:syn000211,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000211__01_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000211__01_iban_tamper.png,1,synthetic:syn000211,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000211__02_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000211__02_amount_tamper.png,1,synthetic:syn000211,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000211__03_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000211__03_text_rewrite.png,1,synthetic:syn000211,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000227__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000227__00_orig.png,0,synthetic:syn000227,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000227__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000227__01_amount_consistent.png,1,synthetic:syn000227,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000227__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000227__02_amount_consistent.png,1,synthetic:syn000227,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000227__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000227__03_amount_tamper.png,1,synthetic:syn000227,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000247__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000247__00_orig.png,0,synthetic:syn000247,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000247__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000247__01_inpaint_sim.png,1,synthetic:syn000247,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000247__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000247__02_amount_tamper.png,1,synthetic:syn000247,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000247__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000247__03_inpaint_sim.png,1,synthetic:syn000247,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000264__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000264__00_orig.png,0,synthetic:syn000264,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000264__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000264__01_copy_move.png,1,synthetic:syn000264,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000264__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000264__02_copy_move.png,1,synthetic:syn000264,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000264__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000264__03_copy_move.png,1,synthetic:syn000264,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000270__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000270__00_orig.png,0,synthetic:syn000270,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000270__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000270__01_copy_move.png,1,synthetic:syn000270,synthetic,en,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000270__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000270__02_inpaint_sim.png,1,synthetic:syn000270,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000270__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000270__03_text_rewrite.png,1,synthetic:syn000270,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000325__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000325__00_orig.png,0,synthetic:syn000325,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000325__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000325__01_amount_consistent.png,1,synthetic:syn000325,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000325__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000325__02_iban_tamper.png,1,synthetic:syn000325,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000325__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000325__03_copy_move.png,1,synthetic:syn000325,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000375__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000375__00_orig.png,0,synthetic:syn000375,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000375__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000375__01_copy_move.png,1,synthetic:syn000375,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000375__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000375__02_amount_consistent.png,1,synthetic:syn000375,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000375__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000375__03_text_rewrite.png,1,synthetic:syn000375,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000398__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000398__00_orig.png,0,synthetic:syn000398,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000398__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000398__01_inpaint_sim.png,1,synthetic:syn000398,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000398__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000398__02_copy_move.png,1,synthetic:syn000398,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000398__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000398__03_iban_tamper.png,1,synthetic:syn000398,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000423__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000423__00_orig.png,0,synthetic:syn000423,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000423__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000423__01_inpaint_sim.png,1,synthetic:syn000423,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000423__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000423__02_iban_tamper.png,1,synthetic:syn000423,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000423__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000423__03_iban_tamper.png,1,synthetic:syn000423,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000459__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000459__00_orig.png,0,synthetic:syn000459,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000459__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000459__01_text_rewrite.png,1,synthetic:syn000459,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000459__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000459__02_text_rewrite.png,1,synthetic:syn000459,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000459__03_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000459__03_iban_tamper.png,1,synthetic:syn000459,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000565__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000565__00_orig.png,0,synthetic:syn000565,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000565__01_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000565__01_iban_tamper.png,1,synthetic:syn000565,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000565__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000565__02_text_rewrite.png,1,synthetic:syn000565,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000565__03_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000565__03_amount_tamper.png,1,synthetic:syn000565,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000605__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000605__00_orig.png,0,synthetic:syn000605,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000605__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000605__01_inpaint_sim.png,1,synthetic:syn000605,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000605__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000605__02_inpaint_sim.png,1,synthetic:syn000605,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000605__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000605__03_text_rewrite.png,1,synthetic:syn000605,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000616__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000616__00_orig.png,0,synthetic:syn000616,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000616__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000616__01_copy_move.png,1,synthetic:syn000616,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000616__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000616__02_amount_consistent.png,1,synthetic:syn000616,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000616__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000616__03_amount_tamper.png,1,synthetic:syn000616,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000620__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000620__00_orig.png,0,synthetic:syn000620,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000620__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000620__01_inpaint_sim.png,1,synthetic:syn000620,synthetic,en,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000620__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000620__02_text_rewrite.png,1,synthetic:syn000620,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000620__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000620__03_text_rewrite.png,1,synthetic:syn000620,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000642__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000642__00_orig.png,0,synthetic:syn000642,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000642__01_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000642__01_amount_tamper.png,1,synthetic:syn000642,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000642__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn000642__02_text_rewrite.png,1,synthetic:syn000642,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000642__03_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn000642__03_inpaint_sim.png,1,synthetic:syn000642,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000690__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000690__00_orig.png,0,synthetic:syn000690,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000690__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000690__01_amount_tamper.png,1,synthetic:syn000690,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000690__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000690__02_amount_tamper.png,1,synthetic:syn000690,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000690__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000690__03_amount_tamper.png,1,synthetic:syn000690,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000708__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000708__00_orig.png,0,synthetic:syn000708,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000708__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000708__01_inpaint_sim.png,1,synthetic:syn000708,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000708__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000708__02_text_rewrite.png,1,synthetic:syn000708,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000708__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000708__03_copy_move.png,1,synthetic:syn000708,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000749__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000749__00_orig.png,0,synthetic:syn000749,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000749__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000749__01_copy_move.png,1,synthetic:syn000749,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000749__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000749__02_iban_tamper.png,1,synthetic:syn000749,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000749__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000749__03_amount_consistent.png,1,synthetic:syn000749,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000809__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000809__00_orig.png,0,synthetic:syn000809,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000809__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000809__01_copy_move.png,1,synthetic:syn000809,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000809__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000809__02_iban_tamper.png,1,synthetic:syn000809,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000809__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000809__03_iban_tamper.png,1,synthetic:syn000809,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000886__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000886__00_orig.png,0,synthetic:syn000886,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000886__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000886__01_iban_tamper.png,1,synthetic:syn000886,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000886__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000886__02_amount_tamper.png,1,synthetic:syn000886,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000886__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000886__03_amount_consistent.png,1,synthetic:syn000886,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000887__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000887__00_orig.png,0,synthetic:syn000887,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000887__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000887__01_amount_tamper.png,1,synthetic:syn000887,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000887__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000887__02_iban_tamper.png,1,synthetic:syn000887,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000887__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000887__03_text_rewrite.png,1,synthetic:syn000887,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000901__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000901__00_orig.png,0,synthetic:syn000901,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000901__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000901__01_amount_tamper.png,1,synthetic:syn000901,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000901__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000901__02_inpaint_sim.png,1,synthetic:syn000901,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000901__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000901__03_amount_tamper.png,1,synthetic:syn000901,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000915__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000915__00_orig.png,0,synthetic:syn000915,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn000915__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000915__01_copy_move.png,1,synthetic:syn000915,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000915__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000915__02_amount_tamper.png,1,synthetic:syn000915,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000915__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000915__03_text_rewrite.png,1,synthetic:syn000915,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000930__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000930__00_orig.png,0,synthetic:syn000930,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000930__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000930__01_inpaint_sim.png,1,synthetic:syn000930,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000930__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000930__02_amount_consistent.png,1,synthetic:syn000930,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn000930__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000930__03_iban_tamper.png,1,synthetic:syn000930,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000938__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000938__00_orig.png,0,synthetic:syn000938,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000938__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn000938__01_inpaint_sim.png,1,synthetic:syn000938,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn000938__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000938__02_copy_move.png,1,synthetic:syn000938,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000938__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000938__03_iban_tamper.png,1,synthetic:syn000938,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000948__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000948__00_orig.png,0,synthetic:syn000948,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000948__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000948__01_copy_move.png,1,synthetic:syn000948,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000948__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000948__02_text_rewrite.png,1,synthetic:syn000948,synthetic,en,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000948__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn000948__03_copy_move.png,1,synthetic:syn000948,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000966__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn000966__00_orig.png,0,synthetic:syn000966,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn000966__01_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000966__01_amount_tamper.png,1,synthetic:syn000966,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000966__02_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn000966__02_copy_move.png,1,synthetic:syn000966,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn000966__03_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn000966__03_amount_tamper.png,1,synthetic:syn000966,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000987__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn000987__00_orig.png,0,synthetic:syn000987,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn000987__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn000987__01_text_rewrite.png,1,synthetic:syn000987,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn000987__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn000987__02_amount_tamper.png,1,synthetic:syn000987,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn000987__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn000987__03_amount_consistent.png,1,synthetic:syn000987,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001041__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001041__00_orig.png,0,synthetic:syn001041,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001041__01_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001041__01_inpaint_sim.png,1,synthetic:syn001041,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001041__02_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001041__02_inpaint_sim.png,1,synthetic:syn001041,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001041__03_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn001041__03_copy_move.png,1,synthetic:syn001041,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001042__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001042__00_orig.png,0,synthetic:syn001042,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001042__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001042__01_copy_move.png,1,synthetic:syn001042,synthetic,en,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001042__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001042__02_text_rewrite.png,1,synthetic:syn001042,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001042__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001042__03_text_rewrite.png,1,synthetic:syn001042,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001050__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001050__00_orig.png,0,synthetic:syn001050,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001050__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001050__01_amount_consistent.png,1,synthetic:syn001050,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001050__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001050__02_copy_move.png,1,synthetic:syn001050,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001050__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001050__03_copy_move.png,1,synthetic:syn001050,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001065__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001065__00_orig.png,0,synthetic:syn001065,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001065__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001065__01_amount_tamper.png,1,synthetic:syn001065,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001065__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001065__02_iban_tamper.png,1,synthetic:syn001065,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001065__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001065__03_copy_move.png,1,synthetic:syn001065,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001092__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001092__00_orig.png,0,synthetic:syn001092,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001092__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001092__01_text_rewrite.png,1,synthetic:syn001092,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001092__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001092__02_iban_tamper.png,1,synthetic:syn001092,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001092__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001092__03_copy_move.png,1,synthetic:syn001092,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001099__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001099__00_orig.png,0,synthetic:syn001099,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001099__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001099__01_copy_move.png,1,synthetic:syn001099,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001099__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001099__02_text_rewrite.png,1,synthetic:syn001099,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001099__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001099__03_text_rewrite.png,1,synthetic:syn001099,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001173__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001173__00_orig.png,0,synthetic:syn001173,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001173__01_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001173__01_amount_tamper.png,1,synthetic:syn001173,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001173__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001173__02_text_rewrite.png,1,synthetic:syn001173,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001173__03_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001173__03_inpaint_sim.png,1,synthetic:syn001173,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001199__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001199__00_orig.png,0,synthetic:syn001199,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001199__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001199__01_amount_tamper.png,1,synthetic:syn001199,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001199__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001199__02_inpaint_sim.png,1,synthetic:syn001199,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001199__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001199__03_amount_tamper.png,1,synthetic:syn001199,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001210__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001210__00_orig.png,0,synthetic:syn001210,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001210__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001210__01_copy_move.png,1,synthetic:syn001210,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001210__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001210__02_inpaint_sim.png,1,synthetic:syn001210,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001210__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001210__03_inpaint_sim.png,1,synthetic:syn001210,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001233__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001233__00_orig.png,0,synthetic:syn001233,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001233__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001233__01_amount_consistent.png,1,synthetic:syn001233,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001233__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001233__02_text_rewrite.png,1,synthetic:syn001233,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001233__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001233__03_text_rewrite.png,1,synthetic:syn001233,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001238__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001238__00_orig.png,0,synthetic:syn001238,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001238__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001238__01_copy_move.png,1,synthetic:syn001238,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001238__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001238__02_text_rewrite.png,1,synthetic:syn001238,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001238__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001238__03_copy_move.png,1,synthetic:syn001238,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001240__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001240__00_orig.png,0,synthetic:syn001240,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001240__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001240__01_inpaint_sim.png,1,synthetic:syn001240,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001240__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001240__02_copy_move.png,1,synthetic:syn001240,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001240__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001240__03_text_rewrite.png,1,synthetic:syn001240,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001275__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001275__00_orig.png,0,synthetic:syn001275,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001275__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001275__01_amount_tamper.png,1,synthetic:syn001275,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001275__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001275__02_inpaint_sim.png,1,synthetic:syn001275,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001275__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001275__03_amount_tamper.png,1,synthetic:syn001275,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001279__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001279__00_orig.png,0,synthetic:syn001279,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001279__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001279__01_inpaint_sim.png,1,synthetic:syn001279,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001279__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001279__02_amount_consistent.png,1,synthetic:syn001279,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001279__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001279__03_inpaint_sim.png,1,synthetic:syn001279,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001299__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001299__00_orig.png,0,synthetic:syn001299,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001299__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001299__01_text_rewrite.png,1,synthetic:syn001299,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001299__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001299__02_copy_move.png,1,synthetic:syn001299,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001299__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001299__03_copy_move.png,1,synthetic:syn001299,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001307__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001307__00_orig.png,0,synthetic:syn001307,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001307__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001307__01_text_rewrite.png,1,synthetic:syn001307,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001307__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001307__02_amount_consistent.png,1,synthetic:syn001307,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001307__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001307__03_text_rewrite.png,1,synthetic:syn001307,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001308__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001308__00_orig.png,0,synthetic:syn001308,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001308__01_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001308__01_amount_consistent.png,1,synthetic:syn001308,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001308__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001308__02_text_rewrite.png,1,synthetic:syn001308,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001308__03_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001308__03_amount_consistent.png,1,synthetic:syn001308,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001349__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001349__00_orig.png,0,synthetic:syn001349,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001349__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001349__01_text_rewrite.png,1,synthetic:syn001349,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001349__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001349__02_text_rewrite.png,1,synthetic:syn001349,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001349__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001349__03_text_rewrite.png,1,synthetic:syn001349,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001402__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001402__00_orig.png,0,synthetic:syn001402,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001402__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001402__01_text_rewrite.png,1,synthetic:syn001402,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001402__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001402__02_amount_tamper.png,1,synthetic:syn001402,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001402__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001402__03_inpaint_sim.png,1,synthetic:syn001402,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001434__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001434__00_orig.png,0,synthetic:syn001434,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001434__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001434__01_copy_move.png,1,synthetic:syn001434,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001434__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001434__02_amount_tamper.png,1,synthetic:syn001434,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001434__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001434__03_amount_consistent.png,1,synthetic:syn001434,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001515__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001515__00_orig.png,0,synthetic:syn001515,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001515__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001515__01_inpaint_sim.png,1,synthetic:syn001515,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001515__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001515__02_amount_tamper.png,1,synthetic:syn001515,synthetic,en,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001515__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001515__03_iban_tamper.png,1,synthetic:syn001515,synthetic,en,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001544__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001544__00_orig.png,0,synthetic:syn001544,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001544__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001544__01_amount_consistent.png,1,synthetic:syn001544,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001544__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001544__02_amount_consistent.png,1,synthetic:syn001544,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001544__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001544__03_inpaint_sim.png,1,synthetic:syn001544,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001549__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001549__00_orig.png,0,synthetic:syn001549,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001549__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001549__01_amount_tamper.png,1,synthetic:syn001549,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001549__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001549__02_iban_tamper.png,1,synthetic:syn001549,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001549__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001549__03_inpaint_sim.png,1,synthetic:syn001549,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001561__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001561__00_orig.png,0,synthetic:syn001561,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001561__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001561__01_text_rewrite.png,1,synthetic:syn001561,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001561__02_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn001561__02_copy_move.png,1,synthetic:syn001561,synthetic,en,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001561__03_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001561__03_inpaint_sim.png,1,synthetic:syn001561,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001569__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001569__00_orig.png,0,synthetic:syn001569,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001569__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001569__01_copy_move.png,1,synthetic:syn001569,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001569__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001569__02_iban_tamper.png,1,synthetic:syn001569,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001569__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001569__03_iban_tamper.png,1,synthetic:syn001569,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001576__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001576__00_orig.png,0,synthetic:syn001576,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001576__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001576__01_inpaint_sim.png,1,synthetic:syn001576,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001576__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001576__02_inpaint_sim.png,1,synthetic:syn001576,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001576__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001576__03_inpaint_sim.png,1,synthetic:syn001576,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001594__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001594__00_orig.png,0,synthetic:syn001594,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001594__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001594__01_text_rewrite.png,1,synthetic:syn001594,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001594__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001594__02_inpaint_sim.png,1,synthetic:syn001594,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001594__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001594__03_copy_move.png,1,synthetic:syn001594,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001595__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001595__00_orig.png,0,synthetic:syn001595,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001595__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001595__01_text_rewrite.png,1,synthetic:syn001595,synthetic,en,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001595__02_iban_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001595__02_iban_tamper.png,1,synthetic:syn001595,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001595__03_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001595__03_amount_consistent.png,1,synthetic:syn001595,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001669__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001669__00_orig.png,0,synthetic:syn001669,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001669__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001669__01_text_rewrite.png,1,synthetic:syn001669,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001669__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001669__02_copy_move.png,1,synthetic:syn001669,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001669__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001669__03_inpaint_sim.png,1,synthetic:syn001669,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001679__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001679__00_orig.png,0,synthetic:syn001679,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001679__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001679__01_copy_move.png,1,synthetic:syn001679,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001679__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001679__02_inpaint_sim.png,1,synthetic:syn001679,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001679__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001679__03_inpaint_sim.png,1,synthetic:syn001679,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001709__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001709__00_orig.png,0,synthetic:syn001709,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001709__01_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn001709__01_copy_move.png,1,synthetic:syn001709,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001709__02_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001709__02_amount_consistent.png,1,synthetic:syn001709,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001709__03_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001709__03_amount_consistent.png,1,synthetic:syn001709,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001717__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001717__00_orig.png,0,synthetic:syn001717,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001717__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001717__01_iban_tamper.png,1,synthetic:syn001717,synthetic,en,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001717__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001717__02_copy_move.png,1,synthetic:syn001717,synthetic,en,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001717__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001717__03_text_rewrite.png,1,synthetic:syn001717,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001733__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001733__00_orig.png,0,synthetic:syn001733,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001733__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001733__01_inpaint_sim.png,1,synthetic:syn001733,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001733__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001733__02_amount_tamper.png,1,synthetic:syn001733,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001733__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001733__03_text_rewrite.png,1,synthetic:syn001733,synthetic,en,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001737__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001737__00_orig.png,0,synthetic:syn001737,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001737__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001737__01_copy_move.png,1,synthetic:syn001737,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001737__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001737__02_text_rewrite.png,1,synthetic:syn001737,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001737__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001737__03_amount_tamper.png,1,synthetic:syn001737,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001793__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001793__00_orig.png,0,synthetic:syn001793,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001793__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001793__01_copy_move.png,1,synthetic:syn001793,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001793__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001793__02_inpaint_sim.png,1,synthetic:syn001793,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001793__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001793__03_iban_tamper.png,1,synthetic:syn001793,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001802__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001802__00_orig.png,0,synthetic:syn001802,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001802__01_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001802__01_inpaint_sim.png,1,synthetic:syn001802,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001802__02_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001802__02_inpaint_sim.png,1,synthetic:syn001802,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001802__03_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001802__03_amount_tamper.png,1,synthetic:syn001802,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001824__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001824__00_orig.png,0,synthetic:syn001824,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001824__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001824__01_text_rewrite.png,1,synthetic:syn001824,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001824__02_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001824__02_amount_tamper.png,1,synthetic:syn001824,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001824__03_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001824__03_amount_tamper.png,1,synthetic:syn001824,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001861__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001861__00_orig.png,0,synthetic:syn001861,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001861__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001861__01_copy_move.png,1,synthetic:syn001861,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001861__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001861__02_amount_tamper.png,1,synthetic:syn001861,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001861__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001861__03_iban_tamper.png,1,synthetic:syn001861,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001877__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001877__00_orig.png,0,synthetic:syn001877,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn001877__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001877__01_text_rewrite.png,1,synthetic:syn001877,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001877__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001877__02_amount_consistent.png,1,synthetic:syn001877,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001877__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001877__03_amount_consistent.png,1,synthetic:syn001877,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001880__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001880__00_orig.png,0,synthetic:syn001880,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001880__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001880__01_text_rewrite.png,1,synthetic:syn001880,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001880__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001880__02_copy_move.png,1,synthetic:syn001880,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001880__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn001880__03_copy_move.png,1,synthetic:syn001880,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001911__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001911__00_orig.png,0,synthetic:syn001911,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001911__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001911__01_iban_tamper.png,1,synthetic:syn001911,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001911__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001911__02_iban_tamper.png,1,synthetic:syn001911,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001911__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001911__03_text_rewrite.png,1,synthetic:syn001911,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001915__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001915__00_orig.png,0,synthetic:syn001915,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001915__01_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001915__01_inpaint_sim.png,1,synthetic:syn001915,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001915__02_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn001915__02_amount_tamper.png,1,synthetic:syn001915,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001915__03_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn001915__03_amount_consistent.png,1,synthetic:syn001915,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001954__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001954__00_orig.png,0,synthetic:syn001954,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn001954__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001954__01_text_rewrite.png,1,synthetic:syn001954,synthetic,en,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001954__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn001954__02_amount_consistent.png,1,synthetic:syn001954,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn001954__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn001954__03_inpaint_sim.png,1,synthetic:syn001954,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001992__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn001992__00_orig.png,0,synthetic:syn001992,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001992__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn001992__01_text_rewrite.png,1,synthetic:syn001992,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001992__02_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn001992__02_inpaint_sim.png,1,synthetic:syn001992,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn001992__03_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn001992__03_copy_move.png,1,synthetic:syn001992,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn001994__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn001994__00_orig.png,0,synthetic:syn001994,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn001994__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001994__01_amount_tamper.png,1,synthetic:syn001994,synthetic,en,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn001994__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn001994__02_text_rewrite.png,1,synthetic:syn001994,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn001994__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn001994__03_iban_tamper.png,1,synthetic:syn001994,synthetic,en,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002000__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002000__00_orig.png,0,synthetic:syn002000,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002000__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002000__01_iban_tamper.png,1,synthetic:syn002000,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002000__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002000__02_amount_tamper.png,1,synthetic:syn002000,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002000__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002000__03_iban_tamper.png,1,synthetic:syn002000,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002042__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002042__00_orig.png,0,synthetic:syn002042,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002042__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002042__01_text_rewrite.png,1,synthetic:syn002042,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002042__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002042__02_amount_consistent.png,1,synthetic:syn002042,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002042__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002042__03_amount_tamper.png,1,synthetic:syn002042,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002046__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002046__00_orig.png,0,synthetic:syn002046,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002046__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002046__01_copy_move.png,1,synthetic:syn002046,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002046__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002046__02_inpaint_sim.png,1,synthetic:syn002046,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002046__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002046__03_copy_move.png,1,synthetic:syn002046,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002080__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002080__00_orig.png,0,synthetic:syn002080,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002080__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002080__01_inpaint_sim.png,1,synthetic:syn002080,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002080__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002080__02_amount_tamper.png,1,synthetic:syn002080,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002080__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002080__03_amount_consistent.png,1,synthetic:syn002080,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002132__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002132__00_orig.png,0,synthetic:syn002132,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002132__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002132__01_text_rewrite.png,1,synthetic:syn002132,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002132__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002132__02_amount_tamper.png,1,synthetic:syn002132,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002132__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002132__03_amount_consistent.png,1,synthetic:syn002132,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002137__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002137__00_orig.png,0,synthetic:syn002137,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002137__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002137__01_text_rewrite.png,1,synthetic:syn002137,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002137__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002137__02_inpaint_sim.png,1,synthetic:syn002137,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002137__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002137__03_amount_tamper.png,1,synthetic:syn002137,synthetic,en,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002157__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002157__00_orig.png,0,synthetic:syn002157,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002157__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002157__01_amount_tamper.png,1,synthetic:syn002157,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002157__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002157__02_copy_move.png,1,synthetic:syn002157,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002157__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002157__03_amount_tamper.png,1,synthetic:syn002157,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002187__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002187__00_orig.png,0,synthetic:syn002187,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002187__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002187__01_inpaint_sim.png,1,synthetic:syn002187,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002187__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002187__02_amount_tamper.png,1,synthetic:syn002187,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002187__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002187__03_copy_move.png,1,synthetic:syn002187,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002237__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002237__00_orig.png,0,synthetic:syn002237,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002237__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002237__01_inpaint_sim.png,1,synthetic:syn002237,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002237__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002237__02_amount_tamper.png,1,synthetic:syn002237,synthetic,en,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002237__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002237__03_inpaint_sim.png,1,synthetic:syn002237,synthetic,en,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002239__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002239__00_orig.png,0,synthetic:syn002239,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002239__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002239__01_amount_tamper.png,1,synthetic:syn002239,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002239__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002239__02_copy_move.png,1,synthetic:syn002239,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002239__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002239__03_inpaint_sim.png,1,synthetic:syn002239,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002263__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002263__00_orig.png,0,synthetic:syn002263,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002263__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002263__01_text_rewrite.png,1,synthetic:syn002263,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002263__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002263__02_inpaint_sim.png,1,synthetic:syn002263,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002263__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002263__03_amount_consistent.png,1,synthetic:syn002263,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002299__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002299__00_orig.png,0,synthetic:syn002299,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002299__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002299__01_amount_tamper.png,1,synthetic:syn002299,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002299__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002299__02_amount_consistent.png,1,synthetic:syn002299,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002299__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002299__03_copy_move.png,1,synthetic:syn002299,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002318__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002318__00_orig.png,0,synthetic:syn002318,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002318__01_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002318__01_amount_tamper.png,1,synthetic:syn002318,synthetic,en,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002318__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002318__02_iban_tamper.png,1,synthetic:syn002318,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002318__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002318__03_inpaint_sim.png,1,synthetic:syn002318,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002335__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002335__00_orig.png,0,synthetic:syn002335,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002335__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002335__01_copy_move.png,1,synthetic:syn002335,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002335__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002335__02_text_rewrite.png,1,synthetic:syn002335,synthetic,tr,fatura,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002335__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002335__03_inpaint_sim.png,1,synthetic:syn002335,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002407__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002407__00_orig.png,0,synthetic:syn002407,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002407__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002407__01_text_rewrite.png,1,synthetic:syn002407,synthetic,en,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002407__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002407__02_amount_consistent.png,1,synthetic:syn002407,synthetic,en,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002407__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002407__03_copy_move.png,1,synthetic:syn002407,synthetic,en,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002423__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002423__00_orig.png,0,synthetic:syn002423,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002423__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002423__01_inpaint_sim.png,1,synthetic:syn002423,synthetic,tr,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002423__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002423__02_amount_consistent.png,1,synthetic:syn002423,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002423__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002423__03_copy_move.png,1,synthetic:syn002423,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002432__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002432__00_orig.png,0,synthetic:syn002432,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002432__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002432__01_inpaint_sim.png,1,synthetic:syn002432,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002432__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002432__02_amount_consistent.png,1,synthetic:syn002432,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002432__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002432__03_amount_consistent.png,1,synthetic:syn002432,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002497__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002497__00_orig.png,0,synthetic:syn002497,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002497__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002497__01_inpaint_sim.png,1,synthetic:syn002497,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002497__02_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002497__02_iban_tamper.png,1,synthetic:syn002497,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002497__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002497__03_copy_move.png,1,synthetic:syn002497,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002514__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002514__00_orig.png,0,synthetic:syn002514,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002514__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002514__01_iban_tamper.png,1,synthetic:syn002514,synthetic,tr,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002514__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002514__02_amount_tamper.png,1,synthetic:syn002514,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002514__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002514__03_amount_tamper.png,1,synthetic:syn002514,synthetic,tr,fatura,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002529__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002529__00_orig.png,0,synthetic:syn002529,synthetic,en,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002529__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002529__01_text_rewrite.png,1,synthetic:syn002529,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002529__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002529__02_text_rewrite.png,1,synthetic:syn002529,synthetic,en,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002529__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002529__03_amount_tamper.png,1,synthetic:syn002529,synthetic,en,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002548__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002548__00_orig.png,0,synthetic:syn002548,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002548__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002548__01_amount_consistent.png,1,synthetic:syn002548,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002548__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002548__02_copy_move.png,1,synthetic:syn002548,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002548__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002548__03_copy_move.png,1,synthetic:syn002548,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002570__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002570__00_orig.png,0,synthetic:syn002570,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002570__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002570__01_inpaint_sim.png,1,synthetic:syn002570,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002570__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002570__02_amount_tamper.png,1,synthetic:syn002570,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002570__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002570__03_inpaint_sim.png,1,synthetic:syn002570,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002609__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002609__00_orig.png,0,synthetic:syn002609,synthetic,tr,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002609__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002609__01_amount_consistent.png,1,synthetic:syn002609,synthetic,tr,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002609__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002609__02_copy_move.png,1,synthetic:syn002609,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002609__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002609__03_copy_move.png,1,synthetic:syn002609,synthetic,tr,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002616__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002616__00_orig.png,0,synthetic:syn002616,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002616__01_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002616__01_inpaint_sim.png,1,synthetic:syn002616,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002616__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002616__02_amount_consistent.png,1,synthetic:syn002616,synthetic,en,fatura,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002616__03_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002616__03_copy_move.png,1,synthetic:syn002616,synthetic,en,fatura,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002632__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002632__00_orig.png,0,synthetic:syn002632,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002632__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002632__01_amount_consistent.png,1,synthetic:syn002632,synthetic,en,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002632__02_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002632__02_amount_consistent.png,1,synthetic:syn002632,synthetic,en,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002632__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002632__03_amount_tamper.png,1,synthetic:syn002632,synthetic,en,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002635__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002635__00_orig.png,0,synthetic:syn002635,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002635__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002635__01_text_rewrite.png,1,synthetic:syn002635,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002635__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002635__02_inpaint_sim.png,1,synthetic:syn002635,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002635__03_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002635__03_amount_consistent.png,1,synthetic:syn002635,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002685__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn002685__00_orig.png,0,synthetic:syn002685,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002685__01_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn002685__01_text_rewrite.png,1,synthetic:syn002685,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002685__02_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn002685__02_text_rewrite.png,1,synthetic:syn002685,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002685__03_text_rewrite.png,data/6_synthetic_tr_en_v4/masks/syn002685__03_text_rewrite.png,1,synthetic:syn002685,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002706__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002706__00_orig.png,0,synthetic:syn002706,synthetic,en,fatura,orig,test
+data/6_synthetic_tr_en_v4/images/syn002706__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002706__01_iban_tamper.png,1,synthetic:syn002706,synthetic,en,fatura,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002706__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002706__02_inpaint_sim.png,1,synthetic:syn002706,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002706__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002706__03_inpaint_sim.png,1,synthetic:syn002706,synthetic,en,fatura,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002709__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002709__00_orig.png,0,synthetic:syn002709,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002709__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002709__01_copy_move.png,1,synthetic:syn002709,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002709__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002709__02_inpaint_sim.png,1,synthetic:syn002709,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002709__03_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002709__03_iban_tamper.png,1,synthetic:syn002709,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002717__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002717__00_orig.png,0,synthetic:syn002717,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002717__01_iban_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002717__01_iban_tamper.png,1,synthetic:syn002717,synthetic,tr,dekont,iban_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002717__02_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002717__02_text_rewrite.png,1,synthetic:syn002717,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002717__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002717__03_text_rewrite.png,1,synthetic:syn002717,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002769__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002769__00_orig.png,0,synthetic:syn002769,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002769__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002769__01_amount_consistent.png,1,synthetic:syn002769,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002769__02_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002769__02_copy_move.png,1,synthetic:syn002769,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002769__03_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002769__03_text_rewrite.png,1,synthetic:syn002769,synthetic,tr,fis,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002775__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002775__00_orig.png,0,synthetic:syn002775,synthetic,en,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002775__01_amount_consistent.jpg,data/6_synthetic_tr_en_v4/masks/syn002775__01_amount_consistent.png,1,synthetic:syn002775,synthetic,en,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002775__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002775__02_amount_tamper.png,1,synthetic:syn002775,synthetic,en,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002775__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002775__03_inpaint_sim.png,1,synthetic:syn002775,synthetic,en,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002817__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn002817__00_orig.png,0,synthetic:syn002817,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002817__01_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn002817__01_inpaint_sim.png,1,synthetic:syn002817,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002817__02_copy_move.png,data/6_synthetic_tr_en_v4/masks/syn002817__02_copy_move.png,1,synthetic:syn002817,synthetic,tr,fis,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002817__03_inpaint_sim.png,data/6_synthetic_tr_en_v4/masks/syn002817__03_inpaint_sim.png,1,synthetic:syn002817,synthetic,tr,fis,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002847__00_orig.png,data/6_synthetic_tr_en_v4/masks/syn002847__00_orig.png,0,synthetic:syn002847,synthetic,tr,fis,orig,test
+data/6_synthetic_tr_en_v4/images/syn002847__01_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn002847__01_amount_tamper.png,1,synthetic:syn002847,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002847__02_amount_tamper.png,data/6_synthetic_tr_en_v4/masks/syn002847__02_amount_tamper.png,1,synthetic:syn002847,synthetic,tr,fis,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002847__03_amount_consistent.png,data/6_synthetic_tr_en_v4/masks/syn002847__03_amount_consistent.png,1,synthetic:syn002847,synthetic,tr,fis,amount_consistent,test
+data/6_synthetic_tr_en_v4/images/syn002868__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002868__00_orig.png,0,synthetic:syn002868,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002868__01_copy_move.jpg,data/6_synthetic_tr_en_v4/masks/syn002868__01_copy_move.png,1,synthetic:syn002868,synthetic,tr,dekont,copy_move,test
+data/6_synthetic_tr_en_v4/images/syn002868__02_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002868__02_amount_tamper.png,1,synthetic:syn002868,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002868__03_amount_tamper.jpg,data/6_synthetic_tr_en_v4/masks/syn002868__03_amount_tamper.png,1,synthetic:syn002868,synthetic,tr,dekont,amount_tamper,test
+data/6_synthetic_tr_en_v4/images/syn002894__00_orig.jpg,data/6_synthetic_tr_en_v4/masks/syn002894__00_orig.png,0,synthetic:syn002894,synthetic,tr,dekont,orig,test
+data/6_synthetic_tr_en_v4/images/syn002894__01_text_rewrite.jpg,data/6_synthetic_tr_en_v4/masks/syn002894__01_text_rewrite.png,1,synthetic:syn002894,synthetic,tr,dekont,text_rewrite,test
+data/6_synthetic_tr_en_v4/images/syn002894__02_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002894__02_inpaint_sim.png,1,synthetic:syn002894,synthetic,tr,dekont,inpaint_sim,test
+data/6_synthetic_tr_en_v4/images/syn002894__03_inpaint_sim.jpg,data/6_synthetic_tr_en_v4/masks/syn002894__03_inpaint_sim.png,1,synthetic:syn002894,synthetic,tr,dekont,inpaint_sim,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__00_orig.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__00_orig.png,0,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__01_multi.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__01_multi.png,1,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__02_inpaint_rewrite.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__02_inpaint_rewrite.png,1,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__03_delete.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__03_delete.png,1,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__04_multi.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__04_multi.png,1,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750637270__p0__05_field_rewrite.png,data/8_real_forged_v2/masks/garanti_Dekont_1792750637270__p0__05_field_rewrite.png,1,real:garanti/Dekont_1792750637270,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__00_orig.png,0,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__01_delete.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__01_delete.png,1,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__02_copy_move.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__02_copy_move.png,1,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,copy_move,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__03_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__03_field_rewrite.png,1,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__04_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__04_digit_change.png,1,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750711610__p0__05_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750711610__p0__05_field_rewrite.png,1,real:garanti/Dekont_1792750711610,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__00_orig.png,0,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__01_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__01_inpaint_rewrite.png,1,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__02_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__02_field_rewrite.png,1,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__03_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__03_multi.png,1,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__04_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__04_digit_change.png,1,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750729647__p0__05_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750729647__p0__05_multi.png,1,real:garanti/Dekont_1792750729647,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__00_orig.png,0,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__01_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__01_digit_change.png,1,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__02_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__02_multi.png,1,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__03_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__03_multi.png,1,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__04_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__04_field_rewrite.png,1,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750761569__p0__05_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750761569__p0__05_field_rewrite.png,1,real:garanti/Dekont_1792750761569,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__00_orig.png,0,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__01_name_swap.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__01_name_swap.png,1,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,name_swap,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__02_copy_move.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__02_copy_move.png,1,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,copy_move,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__03_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__03_field_rewrite.png,1,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__04_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__04_digit_change.png,1,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792750785288__p0__05_delete.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792750785288__p0__05_delete.png,1,real:garanti/Dekont_1792750785288,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__00_orig.png,0,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__01_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__01_multi.png,1,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__02_delete.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__02_delete.png,1,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__03_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__03_inpaint_rewrite.png,1,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__04_delete.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__04_delete.png,1,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752791814__p0__05_multi.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752791814__p0__05_multi.png,1,real:garanti/Dekont_1792752791814,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__00_orig.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__00_orig.png,0,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__01_digit_change.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__01_digit_change.png,1,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__02_multi.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__02_multi.png,1,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__03_field_rewrite.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__03_field_rewrite.png,1,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__04_inpaint_rewrite.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__04_inpaint_rewrite.png,1,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752833381__p0__05_multi.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752833381__p0__05_multi.png,1,real:garanti/Dekont_1792752833381,real_forged,tr,garanti,multi,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__00_orig.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__00_orig.png,0,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__01_digit_change.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__01_digit_change.png,1,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__02_digit_change.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__02_digit_change.png,1,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__03_name_swap.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__03_name_swap.png,1,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,name_swap,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__04_inpaint_rewrite.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__04_inpaint_rewrite.png,1,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752841983__p0__05_name_swap.png,data/8_real_forged_v2/masks/garanti_Dekont_1792752841983__p0__05_name_swap.png,1,real:garanti/Dekont_1792752841983,real_forged,tr,garanti,name_swap,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__00_orig.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__00_orig.png,0,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,orig,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__01_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__01_digit_change.png,1,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__02_digit_change.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__02_digit_change.png,1,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,digit_change,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__03_field_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__03_field_rewrite.png,1,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,field_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__04_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__04_inpaint_rewrite.png,1,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,inpaint_rewrite,test
+data/8_real_forged_v2/images/garanti_Dekont_1792752852102__p0__05_delete.jpg,data/8_real_forged_v2/masks/garanti_Dekont_1792752852102__p0__05_delete.png,1,real:garanti/Dekont_1792752852102,real_forged,tr,garanti,delete,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__00_orig.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__00_orig.png,0,real:is/Dekont1 (12),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__01_name_swap.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__01_name_swap.png,1,real:is/Dekont1 (12),real_forged,tr,is,name_swap,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__02_multi.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__02_multi.png,1,real:is/Dekont1 (12),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__03_multi.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__03_multi.png,1,real:is/Dekont1 (12),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__04_copy_move.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__04_copy_move.png,1,real:is/Dekont1 (12),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont1_12___p0__05_field_rewrite.png,data/8_real_forged_v2/masks/is_Dekont1_12___p0__05_field_rewrite.png,1,real:is/Dekont1 (12),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__00_orig.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__00_orig.png,0,real:is/Dekont1 (3),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__01_digit_change.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__01_digit_change.png,1,real:is/Dekont1 (3),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__02_copy_move.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__02_copy_move.png,1,real:is/Dekont1 (3),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__03_name_swap.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__03_name_swap.png,1,real:is/Dekont1 (3),real_forged,tr,is,name_swap,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__04_delete.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__04_delete.png,1,real:is/Dekont1 (3),real_forged,tr,is,delete,test
+data/8_real_forged_v2/images/is_Dekont1_3___p0__05_multi.png,data/8_real_forged_v2/masks/is_Dekont1_3___p0__05_multi.png,1,real:is/Dekont1 (3),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__00_orig.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__00_orig.png,0,real:is/Dekont1 (6),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__01_digit_change.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__01_digit_change.png,1,real:is/Dekont1 (6),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__02_multi.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__02_multi.png,1,real:is/Dekont1 (6),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__03_multi.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__03_multi.png,1,real:is/Dekont1 (6),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__04_field_rewrite.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__04_field_rewrite.png,1,real:is/Dekont1 (6),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont1_6___p0__05_copy_move.jpg,data/8_real_forged_v2/masks/is_Dekont1_6___p0__05_copy_move.png,1,real:is/Dekont1 (6),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__00_orig.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__00_orig.png,0,real:is/Dekont1 (8),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__01_digit_change.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__01_digit_change.png,1,real:is/Dekont1 (8),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__02_digit_change.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__02_digit_change.png,1,real:is/Dekont1 (8),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__03_field_rewrite.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__03_field_rewrite.png,1,real:is/Dekont1 (8),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__04_delete.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__04_delete.png,1,real:is/Dekont1 (8),real_forged,tr,is,delete,test
+data/8_real_forged_v2/images/is_Dekont1_8___p0__05_copy_move.png,data/8_real_forged_v2/masks/is_Dekont1_8___p0__05_copy_move.png,1,real:is/Dekont1 (8),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__00_orig.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__00_orig.png,0,real:is/Dekont2 (6),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__01_multi.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__01_multi.png,1,real:is/Dekont2 (6),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__02_copy_move.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__02_copy_move.png,1,real:is/Dekont2 (6),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__03_field_rewrite.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__03_field_rewrite.png,1,real:is/Dekont2 (6),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__04_multi.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__04_multi.png,1,real:is/Dekont2 (6),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont2_6___p0__05_name_swap.png,data/8_real_forged_v2/masks/is_Dekont2_6___p0__05_name_swap.png,1,real:is/Dekont2 (6),real_forged,tr,is,name_swap,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__00_orig.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__00_orig.png,0,real:is/Dekont3 (2),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__01_copy_move.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__01_copy_move.png,1,real:is/Dekont3 (2),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__02_copy_move.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__02_copy_move.png,1,real:is/Dekont3 (2),real_forged,tr,is,copy_move,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__03_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__03_inpaint_rewrite.png,1,real:is/Dekont3 (2),real_forged,tr,is,inpaint_rewrite,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__04_multi.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__04_multi.png,1,real:is/Dekont3 (2),real_forged,tr,is,multi,test
+data/8_real_forged_v2/images/is_Dekont3_2___p0__05_digit_change.jpg,data/8_real_forged_v2/masks/is_Dekont3_2___p0__05_digit_change.png,1,real:is/Dekont3 (2),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__00_orig.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__00_orig.png,0,real:is/Dekont4 (6),real_forged,tr,is,orig,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__01_digit_change.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__01_digit_change.png,1,real:is/Dekont4 (6),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__02_field_rewrite.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__02_field_rewrite.png,1,real:is/Dekont4 (6),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__03_field_rewrite.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__03_field_rewrite.png,1,real:is/Dekont4 (6),real_forged,tr,is,field_rewrite,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__04_digit_change.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__04_digit_change.png,1,real:is/Dekont4 (6),real_forged,tr,is,digit_change,test
+data/8_real_forged_v2/images/is_Dekont4_6___p0__05_delete.jpg,data/8_real_forged_v2/masks/is_Dekont4_6___p0__05_delete.png,1,real:is/Dekont4 (6),real_forged,tr,is,delete,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__00_orig.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__00_orig.png,0,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,orig,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__01_multi.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__01_multi.png,1,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,multi,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__02_multi.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__02_multi.png,1,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,multi,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__03_field_rewrite.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__03_field_rewrite.png,1,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,field_rewrite,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__04_delete.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__04_delete.png,1,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,delete,test
+data/8_real_forged_v2/images/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__05_multi.jpg,data/8_real_forged_v2/masks/trendyol_prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1__p0__05_multi.png,1,real:trendyol/prod_2024-04_113082_ef9e19e4-980c-4337-956d-c18b8b6361aa-1,real_forged,tr,trendyol,multi,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__00_orig.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__00_orig.png,0,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,orig,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__01_field_rewrite.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__01_field_rewrite.png,1,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,field_rewrite,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__02_inpaint_rewrite.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__02_inpaint_rewrite.png,1,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,inpaint_rewrite,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__03_inpaint_rewrite.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__03_inpaint_rewrite.png,1,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,inpaint_rewrite,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__04_delete.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__04_delete.png,1,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,delete,test
+data/8_real_forged_v2/images/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__05_delete.png,data/8_real_forged_v2/masks/trendyol_prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab_1_-1__p0__05_delete.png,1,real:trendyol/prod_2026-09_1232926_dfdbdcba-ff79-4dd7-9fd1-e67b7c34c4ab (1)-1,real_forged,tr,trendyol,delete,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__00_orig.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__00_orig.png,0,real:ziraat/Dekont (19),real_forged,tr,ziraat,orig,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__01_field_rewrite.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__01_field_rewrite.png,1,real:ziraat/Dekont (19),real_forged,tr,ziraat,field_rewrite,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__02_multi.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__02_multi.png,1,real:ziraat/Dekont (19),real_forged,tr,ziraat,multi,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__03_multi.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__03_multi.png,1,real:ziraat/Dekont (19),real_forged,tr,ziraat,multi,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__04_digit_change.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__04_digit_change.png,1,real:ziraat/Dekont (19),real_forged,tr,ziraat,digit_change,test
+data/8_real_forged_v2/images/ziraat_Dekont_19___p0__05_copy_move.png,data/8_real_forged_v2/masks/ziraat_Dekont_19___p0__05_copy_move.png,1,real:ziraat/Dekont (19),real_forged,tr,ziraat,copy_move,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__00_orig.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__00_orig.png,0,real:ziraat/Dekont (26),real_forged,tr,ziraat,orig,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__01_digit_change.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__01_digit_change.png,1,real:ziraat/Dekont (26),real_forged,tr,ziraat,digit_change,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__02_digit_change.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__02_digit_change.png,1,real:ziraat/Dekont (26),real_forged,tr,ziraat,digit_change,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__03_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__03_inpaint_rewrite.png,1,real:ziraat/Dekont (26),real_forged,tr,ziraat,inpaint_rewrite,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__04_inpaint_rewrite.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__04_inpaint_rewrite.png,1,real:ziraat/Dekont (26),real_forged,tr,ziraat,inpaint_rewrite,test
+data/8_real_forged_v2/images/ziraat_Dekont_26___p0__05_digit_change.jpg,data/8_real_forged_v2/masks/ziraat_Dekont_26___p0__05_digit_change.png,1,real:ziraat/Dekont (26),real_forged,tr,ziraat,digit_change,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__00_orig.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__00_orig.png,0,real:ziraat/Dekont (27),real_forged,tr,ziraat,orig,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__01_multi.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__01_multi.png,1,real:ziraat/Dekont (27),real_forged,tr,ziraat,multi,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__02_inpaint_rewrite.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__02_inpaint_rewrite.png,1,real:ziraat/Dekont (27),real_forged,tr,ziraat,inpaint_rewrite,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__03_digit_change.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__03_digit_change.png,1,real:ziraat/Dekont (27),real_forged,tr,ziraat,digit_change,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__04_multi.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__04_multi.png,1,real:ziraat/Dekont (27),real_forged,tr,ziraat,multi,test
+data/8_real_forged_v2/images/ziraat_Dekont_27___p0__05_copy_move.png,data/8_real_forged_v2/masks/ziraat_Dekont_27___p0__05_copy_move.png,1,real:ziraat/Dekont (27),real_forged,tr,ziraat,copy_move,test

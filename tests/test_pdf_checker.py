@@ -73,6 +73,21 @@ def test_modified_long_after_creation():
     assert "pdf_dates" in fails(check_pdf(doc.tobytes()))
 
 
+def test_template_generator_dates_not_flagged():
+    """AEM Forms / LiveCycle: CreationDate şablonun tarihidir (Garanti dekontları: 2017 → üretim günü)."""
+    doc = base_doc()
+    doc.set_metadata({"producer": "Adobe Experience Manager forms output", "creator": "Designer 6.5",
+                      "creationDate": "D:20170508164302+03'00'", "modDate": "D:20261023131152+03'00'"})
+    assert "pdf_dates" not in fails(check_pdf(doc.tobytes()))
+
+
+@pytest.mark.parametrize("a, b", [("FrutigerRoman", "FrutigerBold"), ("ABCDEF+Frutiger-Black", "Frutiger"),
+                                  ("TimesNewRomanPSMT", "TimesNewRomanPS-BoldMT"), ("Arial-BoldMT", "Arial")])
+def test_font_family_ignores_style_suffixes(a, b):
+    from src.pdf_checker import font_family
+    assert font_family(a) == font_family(b)
+
+
 @pytest.mark.parametrize("data", [b"%PDF-1.4 bozuk", b"not a pdf"])
 def test_broken_pdf_not_analyzed(data):
     report = check_pdf(data)

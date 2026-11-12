@@ -72,13 +72,21 @@ REPRINT_KEYWORDS = (
 
 #: Değiştirilme − oluşturulma farkı bundan büyükse şüpheli (sistem PDF'leri tek seferde yazılır).
 DATE_TOLERANCE = timedelta(minutes=2)
+#: Şablondan form doldurarak PDF üreten sistemler (Adobe AEM Forms / LiveCycle, XFA). Bunlarda
+#: ``CreationDate`` şablonun tarihi, ``ModDate`` belgenin üretildiği andır; aradaki fark (ör. Garanti
+#: dekontlarında 2017 → üretim günü) düzenleme değildir. Belge sonradan başka bir araçla düzenlenirse
+#: üretici bilgisi değişir ve ``pdf_editor`` kuralı onu ayrıca yakalar.
+TEMPLATE_KEYWORDS = ("experience manager forms", "livecycle", "adobe designer", "designer 6", "xfa")
 #: "Küçük" kapatma nesnesi: sayfa alanının bu oranından küçük kutu/görüntü (arka plan değil).
 SMALL_COVER_FRACTION = 0.05
 #: Kapatma kutusunun "açık renk" sayılması için en düşük kanal değeri (0-1).
 LIGHT_FILL = 0.85
 
 _SUBSET_RE = re.compile(r"^[A-Z]{6}\+")
-_STYLE_RE = re.compile(r"(bold|italic|oblique|regular|medium|light|semibold|black|condensed|narrow|mt|ps|psmt)+$",
+#: Font adının sonundaki stil/ağırlık ekleri (PostScript adlandırması). "Roman", "Book", "Heavy" gibi
+#: ekler de stildir: ``FrutigerRoman`` ile ``FrutigerBold`` aynı ailedir (Frutiger).
+_STYLE_RE = re.compile(r"(bold|italic|oblique|regular|medium|light|semibold|demibold|extrabold|ultrabold|demi|black|"
+                       r"heavy|thin|roman|book|normal|plain|condensed|narrow|extended|compressed|mt|ps|psmt)+$",
                        re.IGNORECASE)
 _BYTERANGE_RE = re.compile(rb"/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]")
 
@@ -221,8 +229,13 @@ def _check_metadata(doc, report: PdfReport) -> None:
     else:
         report.findings.append(PdfFinding("pdf_editor", PASS, f"Üretici yazılım: {tools}."))
 
+    template = _keyword(tools, TEMPLATE_KEYWORDS) if tools else None
     if created and modified:
-        if modified - created > DATE_TOLERANCE:
+        if template and modified - created > DATE_TOLERANCE:
+            report.findings.append(PdfFinding(
+                "pdf_dates", PASS, f"Şablon tabanlı üretim ('{template}'): oluşturma tarihi şablona ait "
+                                   f"({created:%d.%m.%Y}), değiştirme tarihi belgenin üretildiği an ({modified:%d.%m.%Y %H:%M})."))
+        elif modified - created > DATE_TOLERANCE:
             report.findings.append(PdfFinding(
                 "pdf_dates", FAIL, f"Belge oluşturulduktan {modified - created} sonra değiştirilmiş "
                                    f"({created:%d.%m.%Y %H:%M} → {modified:%d.%m.%Y %H:%M})."))

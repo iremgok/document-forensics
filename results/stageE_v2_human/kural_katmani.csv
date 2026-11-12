@@ -1,0 +1,139 @@
+file,group,label,channel,tamper,producer,creator,pdf_fail,pdf_warn,text_fail,pdf_flag,text_flag,model_flag,any_flag,kural_flag
+is_01_beyaz_tutar.pdf,is_01,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_02_mitar_tutar.pdf,is_02,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_03_beyaz_iban.pdf,is_03,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,iban,True,True,True,True,True
+is_04_miktar_tutar.pdf,is_04,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_05_beyaz_tarih.pdf,is_05,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_06_miktar_tutar.pdf,is_06,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_07_beyaz_isim.pdf,is_07,1,beyaz_katman,isim,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_09_beyaz_tutar.pdf,is_09,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_10_miktar_tutar.pdf,is_10,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_11_beyaz_iban.pdf,is_11,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text,pdf_whiteout,,True,False,True,True,True
+is_12_miktar_tutar.pdf,is_12,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_13_beyaz_tarih.pdf,is_13,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,True,True,True
+is_14_miktar_iban.pdf,is_14,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,False,True,True
+is_15_beyaz_isim.pdf,is_15,1,beyaz_katman,isim,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_16_miktar_iban.pdf,is_16,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,True,True,True
+is_17_beyaz_tutar.pdf,is_17,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_18_miktar_iban.pdf,is_18,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,True,True,True
+is_19_beyaz_iban.pdf,is_19,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,iban,True,True,True,True,True
+is_20_miktar_iban.pdf,is_20,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,False,True,True
+is_21_beyaz_tarih.pdf,is_21,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_22_miktar_iban.pdf,is_22,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,False,True,True
+is_23_beyaz_isim.pdf,is_23,1,beyaz_katman,isim,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_24_miktar_iban.pdf,is_24,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,True,True,True
+is_25_beyaz_tutar.pdf,is_25,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,True,True,True
+is_26_miktar_iban.pdf,is_26,1,metin_duzenleme,iban,Canva,Canva,pdf_editor,,iban,True,True,True,True,True
+is_27_beyaz_iban.pdf,is_27,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,iban,True,True,False,True,True
+is_28_miktar_tarih.pdf,is_28,1,metin_duzenleme,tarih,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_29_beyaz_tarih.pdf,is_29,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_30_miktar_tarih.pdf,is_30,1,metin_duzenleme,tarih,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_31_beyaz_isim.pdf,is_31,1,beyaz_katman,isim,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,False,True,True
+is_32_miktar_tarih.pdf,is_32,1,metin_duzenleme,tarih,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_33_beyaz_tutar.pdf,is_33,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,,,True,False,True,True,True
+is_34_miktar_tarih.pdf,is_34,1,metin_duzenleme,tarih,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_35_beyaz_iban.pdf,is_35,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,iban,True,True,True,True,True
+is_36_miktar_isim.pdf,is_36,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_37_beyaz_tarih.pdf,is_37,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_38_miktar_isim.pdf,is_38,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_39_beyaz_isim.pdf,is_39,1,beyaz_katman,isim,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_40_miktar_isim.pdf,is_40,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_41_beyaz_tutar.pdf,is_41,1,beyaz_katman,tutar,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_42_miktar_isim.pdf,is_42,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_43_beyaz_iban.pdf,is_43,1,beyaz_katman,iban,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,iban,True,True,False,True,True
+is_44_miktar_isim.pdf,is_44,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_45_beyaz_tarih.pdf,is_45,1,beyaz_katman,tarih,Canva,Canva,pdf_editor|pdf_hidden_text|pdf_overlap,pdf_whiteout,,True,False,False,True,True
+is_46_miktar_isim.pdf,is_46,1,metin_duzenleme,isim,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_8_miktar_tutar.pdf,is_08,1,metin_duzenleme,tutar,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_01.pdf,is_01,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_01_canva.pdf,is_01,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_02.pdf,is_02,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_02_canva.pdf,is_02,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_03.pdf,is_03,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,True,True,False
+is_03_canva.pdf,is_03,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_04.pdf,is_04,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_04_canva.pdf,is_04,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_05.pdf,is_05,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_05_canva.pdf,is_05,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_06.pdf,is_06,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_06_canva.pdf,is_06,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_07.pdf,is_07,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_07_canva.pdf,is_07,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_08.pdf,is_08,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_09.pdf,is_09,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_09_canva.pdf,is_09,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_10.pdf,is_10,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_10_canva.pdf,is_10,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_11.pdf,is_11,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_11_canva.pdf,is_11,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_12.pdf,is_12,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,True,True,False
+is_12_canva.pdf,is_12,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_13.pdf,is_13,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_13_canva.pdf,is_13,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_14.pdf,is_14,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_14_canva.pdf,is_14,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_15.pdf,is_15,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_15_canva.pdf,is_15,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_16.pdf,is_16,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_16_canva.pdf,is_16,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_17.pdf,is_17,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_17_canva.pdf,is_17,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_18.pdf,is_18,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_18_canva.pdf,is_18,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_19.pdf,is_19,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_19_canva.pdf,is_19,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_20.pdf,is_20,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_20_canva.pdf,is_20,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_21.pdf,is_21,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_21_canva.pdf,is_21,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_22.pdf,is_22,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_22_canva.pdf,is_22,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_23.pdf,is_23,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_23_canva.pdf,is_23,0,canva_temiz,orig,Canva,Canva,pdf_editor|pdf_hidden_text,,,True,False,False,True,True
+is_24.pdf,is_24,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_24_canva.pdf,is_24,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_25.pdf,is_25,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_25_canva.pdf,is_25,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_26.pdf,is_26,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_26_canva.pdf,is_26,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_27.pdf,is_27,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_27_canva.pdf,is_27,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_28.pdf,is_28,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_28_canva.pdf,is_28,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_29.pdf,is_29,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_29_canva.pdf,is_29,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_30.pdf,is_30,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_30_canva.pdf,is_30,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_31.pdf,is_31,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_31_canva.pdf,is_31,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_32.pdf,is_32,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_32_canva.pdf,is_32,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_33.pdf,is_33,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_33_canva.pdf,is_33,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_34.pdf,is_34,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_34_canva.pdf,is_34,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_35.pdf,is_35,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_35_canva.pdf,is_35,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_36.pdf,is_36,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_36_canva.pdf,is_36,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_37.pdf,is_37,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_37_canva.pdf,is_37,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_38.pdf,is_38,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_38_canva.pdf,is_38,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_39.pdf,is_39,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_39_canva.pdf,is_39,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_40.pdf,is_40,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_40_canva.pdf,is_40,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,True,True,True
+is_41.pdf,is_41,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_41_canva.pdf,is_41,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_42.pdf,is_42,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_42_canva.pdf,is_42,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_43.pdf,is_43,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_43_canva.pdf,is_43,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_44.pdf,is_44,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_44_canva.pdf,is_44,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_45.pdf,is_45,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_45_canva.pdf,is_45,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_46.pdf,is_46,0,banka_orijinal,orig,OpenPDF 1.3.32,JasperReports Library version 6.21.5-74d,,,,False,False,False,False,False
+is_46_canva.pdf,is_46,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
+is_8_canva.pdf,is_08,0,canva_temiz,orig,Canva,Canva,pdf_editor,,,True,False,False,True,True
